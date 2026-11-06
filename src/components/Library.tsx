@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ChartMeta } from "../lib/library";
 
 interface Props {
@@ -7,17 +7,26 @@ interface Props {
   onOpen: (id: string) => void;
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
+  onBackup: (id: string) => void;
+  onOpenBackup: (f: File) => void;
+  backupMsg: string;
   onClose: () => void;
 }
 
 const when = (t: number) => new Date(t).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 
 /** The list of saved charts. */
-export default function Library({ charts, currentId, onOpen, onRename, onDelete, onClose }: Props) {
+export default function Library({ charts, currentId, onOpen, onRename, onDelete, onBackup, onOpenBackup, backupMsg, onClose }: Props) {
   const [confirming, setConfirming] = useState<string | null>(null);
+  const backupInput = useRef<HTMLInputElement>(null);
   return (
     <section className="library" aria-label="My charts">
-      <div className="bar"><h2>My charts</h2><span className="spacer" /><button className="btn" type="button" onClick={onClose}>Close</button></div>
+      <div className="bar"><h2>My charts</h2><span className="spacer" />
+        <button className="btn" type="button" onClick={() => backupInput.current?.click()}>Open a backup</button>
+        <button className="btn" type="button" onClick={onClose}>Close</button>
+        <input ref={backupInput} type="file" accept=".json,application/json" hidden onChange={e => { const f = e.target.files?.[0]; if (f) onOpenBackup(f); e.target.value = ""; }} />
+      </div>
+      {backupMsg && <p className="note status" role="status">{backupMsg}</p>}
       {!charts.length ? (
         <p className="note">No saved charts yet. Make a chart, then tap <b>Save to My charts</b> under the picture.</p>
       ) : (
@@ -44,6 +53,7 @@ export default function Library({ charts, currentId, onOpen, onRename, onDelete,
                   {m.id === currentId
                     ? <span className="mono">Open now</span>
                     : <button className="btn primary" type="button" onClick={() => onOpen(m.id)}>Open</button>}
+                  <button className="mini" type="button" onClick={() => onBackup(m.id)}>Back up</button>
                   <span className="spacer" />
                   {confirming === m.id ? (
                     <>
@@ -60,7 +70,7 @@ export default function Library({ charts, currentId, onOpen, onRename, onDelete,
           })}
         </div>
       )}
-      <p className="note">Charts are saved in this browser on this device. Your ticks and fixes save with them automatically.</p>
+      <p className="note">Charts are saved in this browser on this device. Your ticks and fixes save with them automatically. <b>Back up</b> saves a chart as a file you can keep safe or open on another device or on the online site.</p>
     </section>
   );
 }

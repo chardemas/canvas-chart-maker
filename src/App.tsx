@@ -8,6 +8,7 @@ import { renderExport, type Chart, type Mode } from "./lib/render";
 import { dbGet, dbPut, keepStorage } from "./lib/storage";
 import { deleteChart, getChart, listCharts, metaFor, newId, saveChart, updateChart, type ChartMeta } from "./lib/library";
 import Library from "./components/Library";
+import { makeBackup, openBackup } from "./lib/backup";
 import { buildInWorker } from "./lib/workerClient";
 import EmptyState from "./components/EmptyState";
 import PicturePanel from "./components/PicturePanel";
@@ -227,6 +228,33 @@ export default function App() {
     refreshLibrary();
   };
 
+  /* ---------- backup files ---------- */
+  const [backupMsg, setBackupMsg] = useState("");
+  const backupChart = async (id: string) => {
+    try {
+      // write the open chart's latest ticks straight away rather than waiting for the autosave
+      if (id === currentId && chart) {
+        clearTimeout(saveTimer.current);
+        await dbPut("prog:" + chart.key, { done: chart.done, idx: chart.idx, edits: chart.pal.map(p => ({ rgb: p.rgb, code: p.thread.code, sym: p.sym })) } satisfies SavedProgress);
+      }
+      const { blob, fileName } = await makeBackup(id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = fileName;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      setBackupMsg(`Backup made: “${fileName}”. On iPad it goes to Files → Downloads.`);
+    } catch (e) { setBackupMsg((e as Error).message || "Couldn't make the backup."); }
+  };
+  const openBackupFile = async (f: File) => {
+    try {
+      const id = await openBackup(f);
+      await refreshLibrary();
+      setBackupMsg("Backup opened and added to My charts.");
+      await openSaved(id);
+    } catch (e) { setBackupMsg((e as Error).message || "Couldn't open that backup."); }
+  };
+
   const openSaved = async (id: string) => {
     const saved = await getChart(id);
     if (!saved) { refreshLibrary(); return; }
@@ -341,6 +369,9 @@ export default function App() {
           onOpen={openSaved}
           onRename={(id, name) => updateChart(id, { meta: { name } }).then(refreshLibrary)}
           onDelete={removeSaved}
+          onBackup={backupChart}
+          onOpenBackup={openBackupFile}
+          backupMsg={backupMsg}
           onClose={() => setShowLib(false)}
         />
       )}

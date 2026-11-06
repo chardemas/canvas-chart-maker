@@ -51,3 +51,16 @@ export async function dbDelete(key: string): Promise<void> {
 export async function keepStorage(): Promise<void> {
   try { await navigator.storage?.persist?.(); } catch { /* not supported */ }
 }
+
+/** Every saved key that starts with `prefix`. */
+export async function dbKeys(prefix: string): Promise<string[]> {
+  try {
+    const db = await open();
+    const all = await new Promise<IDBValidKey[]>((res, rej) => {
+      const t = db.transaction(STORE).objectStore(STORE).getAllKeys();
+      t.onsuccess = () => res(t.result);
+      t.onerror = () => rej(t.error);
+    });
+    return all.filter((k): k is string => typeof k === "string" && k.startsWith(prefix));
+  } catch { return []; }
+}
