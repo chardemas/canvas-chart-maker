@@ -1,0 +1,18 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`building the chart > gives the same chart every time for a sample picture 1`] = `
+{
+  "bg": 1391,
+  "grid": "16c6cd78",
+  "palette": [
+    "209 158",
+    "793 131",
+    "502 102",
+    "995 100",
+    "317 156",
+    "798 134",
+    "3808 99",
+    "31 129",
+  ],
+}
+`;
