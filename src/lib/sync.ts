@@ -238,7 +238,7 @@ export function startSync(h: SyncHooks) {
 
 /* ---------- signing in and out ---------- */
 export async function sendCode(email: string) {
-  const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin } });
+  const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname } });
   if (error) throw error;
 }
 

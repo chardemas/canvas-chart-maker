@@ -142,3 +142,4 @@ html.fullchart,html.fullchart body{overflow:hidden}
 .txt{font:inherit;font-size:16px;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);flex:1;min-width:0}
 .txt.code{letter-spacing:.3em;font-family:var(--f-mono);max-width:200px}
 .note.sync.error{color:#c0392b}
+.codebox summary{cursor:pointer;margin-bottom:6px}

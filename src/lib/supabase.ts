@@ -9,5 +9,6 @@ const URL = "https://fnykcgmqrpwxrvdngccj.supabase.co";
 const KEY = "sb_publishable_zYr4xOMO3XilKpr5Y_M_dQ_b36t9OUe";
 
 export const supabase = createClient(URL, KEY, {
-  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+  // "implicit": the emailed sign-in link works in whichever browser it opens in
+  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: "implicit" },
 });
