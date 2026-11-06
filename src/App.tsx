@@ -6,7 +6,9 @@ import { computeRegion, drawRegion } from "./lib/image";
 import { applyMask, findSubject, type Mask } from "./lib/cutout";
 import { renderExport, type Chart, type Mode } from "./lib/render";
 import { dbGet, dbPut, keepStorage } from "./lib/storage";
-import { deleteChart, getChart, listCharts, metaFor, newId, saveChart, updateChart, type ChartMeta } from "./lib/library";
+import { deleteChart, getChart, listCharts, metaFor, newId, saveChart, touchChart, updateChart, type ChartMeta } from "./lib/library";
+import { startSync, syncLabel, type SyncState } from "./lib/sync";
+import Account from "./components/Account";
 import Library from "./components/Library";
 import { makeBackup, openBackup } from "./lib/backup";
 import { buildInWorker } from "./lib/workerClient";
@@ -60,6 +62,15 @@ export default function App() {
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [showLib, setShowLib] = useState(false);
   const refreshLibrary = useCallback(() => listCharts().then(setLibrary), []);
+  const currentRef = useRef<string | null>(null);
+  currentRef.current = currentId;
+
+  /* ---------- account and syncing ---------- */
+  const [email, setEmail] = useState<string | null>(null);
+  const [syncState, setSyncState] = useState<SyncState>("signed-out");
+  const [syncNote, setSyncNote] = useState("");
+  const [showAcct, setShowAcct] = useState(false);
+  const remoteRef = useRef<(ids: string[]) => void>(() => {});
   useEffect(() => { refreshLibrary(); }, [refreshLibrary]);
 
   /* ---------- keep only the subject ---------- */
@@ -200,7 +211,9 @@ export default function App() {
     clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(() => {
       if (!chart) return;
-      dbPut("prog:" + chart.key, { done: chart.done, idx: chart.idx, edits: chart.pal.map(p => ({ rgb: p.rgb, code: p.thread.code, sym: p.sym })) } satisfies SavedProgress);
+      const id = currentRef.current;
+      dbPut("prog:" + chart.key, { done: chart.done, idx: chart.idx, edits: chart.pal.map(p => ({ rgb: p.rgb, code: p.thread.code, sym: p.sym })) } satisfies SavedProgress)
+        .then(() => { if (id) touchChart(id); });
     }, 400);
   }, [chart]);
 
@@ -263,6 +276,24 @@ export default function App() {
     setShowLib(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
+
+  // another device changed charts: refresh the list, and reload the open chart if it was one of them
+  remoteRef.current = async (ids: string[]) => {
+    await refreshLibrary();
+    const id = currentRef.current;
+    if (!id || !ids.includes(id)) return;
+    const saved = await getChart(id);
+    if (!saved) { setCurrentId(null); dbPut("currentId", null); return; }
+    const f = saved.file instanceof File ? saved.file : new File([saved.file], saved.fileName, { type: saved.fileType });
+    openFile(f, saved.settings, id);
+  };
+  useEffect(() => {
+    startSync({
+      onUser: setEmail,
+      onState: (st, note) => { setSyncState(st); if (note !== undefined || st === "signed-out") setSyncNote(note ?? ""); },
+      onRemote: ids => remoteRef.current(ids),
+    });
+  }, []);
 
   const removeSaved = async (id: string) => {
     await deleteChart(id);
@@ -359,8 +390,23 @@ export default function App() {
           <h1>Canvas <em>Chart</em> Maker</h1>
           <p className="sub">Turn a picture into a needlepoint chart sized in inches, with stitch symbols, DMC thread matches, a marked centre, a print version and a checklist you tick off as you paint.</p>
         </div>
-        <button className="btn" type="button" aria-pressed={showLib} onClick={() => setShowLib(v => !v)}>My charts{library.length ? ` (${library.length})` : ""}</button>
+        <div className="btns topbtns">
+          <button className="btn" type="button" aria-pressed={showLib} onClick={() => { setShowLib(v => !v); setShowAcct(false); }}>My charts{library.length ? ` (${library.length})` : ""}</button>
+          <button className={"btn acct " + syncState} type="button" aria-pressed={showAcct} onClick={() => { setShowAcct(v => !v); setShowLib(false); }} title={email ? `${email} · ${syncLabel(syncState)}` : undefined}>
+            {email ? <><span className="dot" aria-hidden="true" />{syncState === "syncing" ? "Syncing…" : syncState === "synced" ? "Synced" : syncState === "offline" ? "Offline" : "Account"}</> : "Sign in"}
+          </button>
+        </div>
       </header>
+
+      {showAcct && (
+        <Account
+          email={email}
+          state={syncState}
+          note={syncNote}
+          onClose={() => setShowAcct(false)}
+          onSignedOut={() => location.reload()}
+        />
+      )}
 
       {showLib && (
         <Library

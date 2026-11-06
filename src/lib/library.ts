@@ -1,6 +1,9 @@
 /**
  * "My charts": charts saved in this browser. Each one keeps its picture and settings; its ticks and
  * hand fixes are stored per exact chart (see "prog:" in App), so reopening it brings them back.
+ *
+ * `updated` is the chart's version: it moves forward whenever the person changes the chart
+ * (ticks, fixes, settings, name), and syncing uses it to decide which copy is newest.
  */
 import type { Settings } from "./chart";
 import { paintPrint, type Chart } from "./render";
@@ -27,6 +30,18 @@ export interface SavedChart {
   settings: Settings;
 }
 
+/* ---------- change notices (for syncing) ---------- */
+export type LibraryEvent = { type: "changed" | "deleted"; id: string };
+let listener: ((e: LibraryEvent) => void) | null = null;
+let quiet = 0;
+export const onLibraryChange = (fn: ((e: LibraryEvent) => void) | null) => { listener = fn; };
+const notify = (e: LibraryEvent) => { if (!quiet) listener?.(e); };
+/** runs `fn` without reporting its writes (used when writing what came from the account) */
+export async function quietly<T>(fn: () => Promise<T>): Promise<T> {
+  quiet++;
+  try { return await fn(); } finally { quiet--; }
+}
+
 const INDEX = "library";
 
 export async function listCharts(): Promise<ChartMeta[]> {
@@ -42,23 +57,50 @@ export async function saveChart(saved: SavedChart, meta: ChartMeta) {
   await dbPut("chart:" + saved.id, saved);
   const list = (await listCharts()).filter(m => m.id !== meta.id);
   await writeIndex([meta, ...list]);
+  notify({ type: "changed", id: saved.id });
 }
 
-/** Updates a saved chart's settings and/or its listing (picture, progress, name). */
+/** compares values regardless of key order */
+const stable = (v: unknown): unknown =>
+  Array.isArray(v) ? v.map(stable)
+  : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).sort().map(k => [k, stable((v as Record<string, unknown>)[k])]))
+  : v;
+const same = (a: unknown, b: unknown) => JSON.stringify(stable(a)) === JSON.stringify(stable(b));
+/** listing fields whose change counts as the person changing the chart (not just a redrawn picture) */
+const REAL: (keyof ChartMeta)[] = ["name", "W", "H", "mesh", "stitches", "done"];
+
+/** Updates a saved chart's settings and/or its listing. Only real changes move it forward. */
 export async function updateChart(id: string, patch: { settings?: Settings; meta?: Partial<ChartMeta> }) {
+  let changed = false;
   if (patch.settings) {
     const saved = await getChart(id);
-    if (saved) await dbPut("chart:" + id, { ...saved, settings: patch.settings });
+    if (saved && !same(saved.settings, patch.settings)) {
+      await dbPut("chart:" + id, { ...saved, settings: patch.settings });
+      changed = true;
+    }
   }
-  if (patch.meta) {
-    const list = await listCharts();
-    await writeIndex(list.map(m => (m.id === id ? { ...m, ...patch.meta, updated: Date.now() } : m)));
-  }
+  const list = await listCharts();
+  const cur = list.find(m => m.id === id);
+  if (!cur) return;
+  const meta = patch.meta ?? {};
+  if (REAL.some(k => k in meta && meta[k] !== cur[k])) changed = true;
+  if (!changed && !(meta.thumb && meta.thumb !== cur.thumb)) return;
+  await writeIndex(list.map(m => (m.id === id ? { ...m, ...meta, updated: changed ? Date.now() : m.updated } : m)));
+  if (changed) notify({ type: "changed", id });
+}
+
+/** The chart's ticks or fixes changed. */
+export async function touchChart(id: string) {
+  const list = await listCharts();
+  if (!list.some(m => m.id === id)) return;
+  await writeIndex(list.map(m => (m.id === id ? { ...m, updated: Date.now() } : m)));
+  notify({ type: "changed", id });
 }
 
 export async function deleteChart(id: string) {
   await dbDelete("chart:" + id);
   await writeIndex((await listCharts()).filter(m => m.id !== id));
+  notify({ type: "deleted", id });
 }
 
 export const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);

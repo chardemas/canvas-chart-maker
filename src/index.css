@@ -128,3 +128,17 @@ html.fullchart,html.fullchart body{overflow:hidden}
 .credit a{color:inherit}
 .busy{opacity:.55;transition:opacity .2s}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+/* account */
+.topbtns{flex-wrap:wrap;justify-content:flex-end;gap:8px}
+.btn.acct .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);margin-right:7px;vertical-align:1px}
+.btn.acct.syncing .dot{background:var(--accent);animation:pulse 1s infinite alternate}
+.btn.acct.offline .dot{background:var(--muted)}
+.btn.acct.error .dot{background:#c0392b}
+@keyframes pulse{from{opacity:.35}to{opacity:1}}
+.account p{margin:0}
+.signin{display:flex;flex-direction:column;gap:8px;max-width:520px}
+.signin .lbl{font-size:13px;font-weight:600}
+.txt{font:inherit;font-size:16px;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);flex:1;min-width:0}
+.txt.code{letter-spacing:.3em;font-family:var(--f-mono);max-width:200px}
+.note.sync.error{color:#c0392b}

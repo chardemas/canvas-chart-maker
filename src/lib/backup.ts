@@ -64,7 +64,7 @@ const blobToDataUrl = (b: Blob) => new Promise<string>((res, rej) => {
 const dataUrlToBlob = (url: string) => fetch(url).then(r => r.blob());
 
 /** progress and mask entries belong to a picture by its file name and size */
-async function extrasFor(fileName: string, size: number): Promise<Record<string, unknown>> {
+export async function extrasFor(fileName: string, size: number): Promise<Record<string, unknown>> {
   const out: Record<string, unknown> = {};
   for (const k of await dbKeys("prog:")) {
     try {
