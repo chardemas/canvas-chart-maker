@@ -19,7 +19,7 @@ import SettingsPanel, { type Form } from "./components/SettingsPanel";
 import ChartView, { ZOOM_MAX, ZOOM_MIN, type Tool } from "./components/ChartView";
 import BrushBar from "./components/BrushBar";
 import ColourBar from "./components/ColourBar";
-import { addColour, paintCell, recount, tickCell, undoChanges, type Change } from "./lib/edit";
+import { ERASER, addColour, paintCell, recount, tickCell, undoChanges, type Change } from "./lib/edit";
 import Legend from "./components/Legend";
 import CropPanel from "./components/CropPanel";
 import ExportPanel from "./components/ExportPanel";
@@ -46,7 +46,8 @@ export default function App() {
   const [focus, setFocus] = useState(-1);
   const [tool, setTool] = useState<Tool>(null);
   const [brush, setBrush] = useState(0);
-  const stroke = useRef<{ v: 0 | 1 | null; changes: Change[] }>({ v: null, changes: [] });
+  const stroke = useRef<{ v: 0 | 1 | null; changes: Change[]; erase?: boolean }>({ v: null, changes: [] });
+  const [brushSize, setBrushSize] = useState(1);
   const [zoom, setZoom] = useState(1);
   const [full, setFull] = useState(false);
   const [cropOpen, setCropOpen] = useState(false);
@@ -323,18 +324,29 @@ export default function App() {
   const markColour = (n: number, v: 0 | 1) => tickWhere(i => chart!.idx[i] === n, v);
 
   /* ---------- strokes on the chart: tick or repaint ---------- */
-  const strokeStart = () => { stroke.current = { v: null, changes: [] }; };
+  /** `eraser`: the stroke is from a pen's eraser end (repaints to background, or unticks) */
+  const strokeStart = (eraser = false) => { stroke.current = { v: eraser ? 0 : null, changes: [], erase: eraser }; };
   const strokeCell = (i: number) => {
     if (!chart) return;
     const st = stroke.current;
-    let ch: Change | null;
-    if (tool === "paint") ch = paintCell(chart, i, brush);
-    else {
+    let any = false;
+    if (tool === "paint") {
+      // the brush covers a square of brushSize × brushSize stitches centred on the touch
+      const k = st.erase ? ERASER : brush;
+      const x0 = (i % chart.W) - Math.floor((brushSize - 1) / 2), y0 = Math.floor(i / chart.W) - Math.floor((brushSize - 1) / 2);
+      for (let y = Math.max(0, y0); y < Math.min(chart.H, y0 + brushSize); y++) {
+        for (let x = Math.max(0, x0); x < Math.min(chart.W, x0 + brushSize); x++) {
+          const ch = paintCell(chart, y * chart.W + x, k);
+          if (ch) { st.changes.push(ch); any = true; }
+        }
+      }
+    } else {
       // the first stitch a stroke touches decides whether the stroke ticks or unticks
       if (st.v === null) st.v = chart.done[i] ? 0 : 1;
-      ch = tickCell(chart, i, st.v);
+      const ch = tickCell(chart, i, st.v);
+      if (ch) { st.changes.push(ch); any = true; }
     }
-    if (ch) { st.changes.push(ch); bump(); }
+    if (any) bump();
   };
   const strokeCancel = () => {
     if (chart && stroke.current.changes.length) { undoChanges(chart, stroke.current.changes); bump(); }
@@ -503,13 +515,14 @@ export default function App() {
                   onCreated={bumpLinks}
                 />
               )}
-              {tool === "paint" && chart && <BrushBar pal={chart.pal} brush={brush} onBrush={setBrush} onAdd={newColour} />}
+              {tool === "paint" && chart && <BrushBar pal={chart.pal} brush={brush} onBrush={setBrush} onAdd={newColour} size={brushSize} onSize={setBrushSize} />}
               {full && tool !== "paint" && chart && mode !== "print" && <ColourBar pal={chart.pal} focus={focus} onFocus={toggleFocus} />}
 
               {chart ? (
                 <ChartView
                   chart={chart} rev={rev} mode={mode} focus={focus} tool={tool} zoom={zoom} busy={busy || !source}
                   onZoom={setZoom}
+                  brushSize={tool === "paint" ? brushSize : 1}
                   onStrokeStart={strokeStart}
                   onCell={strokeCell}
                   onStrokeEnd={strokeEnd}

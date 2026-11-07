@@ -158,3 +158,8 @@ html.fullchart,html.fullchart body{overflow:hidden}
 .linkrow .url{font-family:var(--f-mono);font-size:12px;word-break:break-all;color:var(--muted)}
 .sendbox{display:flex;flex-direction:column;gap:8px;max-width:640px}
 .sendbox .url{font-family:var(--f-mono);font-size:13px;word-break:break-all;padding:8px 10px;border-radius:8px;background:var(--soft)}
+
+.bsize{display:flex;align-items:center;gap:8px;margin:0 6px}
+.bsize input{width:120px}
+.bsize .mono{min-width:42px;font-size:13px}
+.brushmark{position:absolute;pointer-events:none;border:2px solid var(--accent);box-shadow:0 0 0 1px #fff;border-radius:2px;display:none}

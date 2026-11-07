@@ -137,7 +137,8 @@ export default function Tracker({ id }: { id: string }) {
   }, [id]);
 
   /* ---------- ticking ---------- */
-  const strokeStart = () => { stroke.current = { v: null, changes: [] }; };
+  // a pen's eraser end always unticks
+  const strokeStart = (eraser = false) => { stroke.current = { v: eraser ? 0 : null, changes: [] }; };
   const strokeCell = (i: number) => {
     const c = chartRef.current;
     if (!c) return;

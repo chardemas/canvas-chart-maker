@@ -19,7 +19,10 @@ interface Props {
   busy: boolean;
   /** the chart was pinched, ctrl-scrolled or clamped to a new zoom */
   onZoom: (z: number) => void;
-  onStrokeStart: () => void;
+  /** squares the brush covers across (Fix stitches); an outline shows where it will land */
+  brushSize?: number;
+  /** `eraser`: drawn with a pen's eraser end */
+  onStrokeStart: (eraser: boolean) => void;
   /** a square the stroke passed over (background squares included only when painting) */
   onCell: (i: number) => void;
   onStrokeEnd: () => void;
@@ -42,13 +45,14 @@ const dist = (a: Pt, b: Pt) => Math.hypot(a.x - b.x, a.y - b.y) || 1;
  * Two fingers pinch to zoom and drag to move around; with no tool on, one finger drags too.
  * On a Mac, trackpad pinch (or ctrl + scroll) zooms.
  */
-export default function ChartView({ chart, rev, mode, focus, tool, zoom, busy, onZoom, onStrokeStart, onCell, onStrokeEnd, onStrokeCancel }: Props) {
+export default function ChartView({ chart, rev, mode, focus, tool, zoom, busy, onZoom, brushSize = 1, onStrokeStart, onCell, onStrokeEnd, onStrokeCancel }: Props) {
   const viewer = useRef<HTMLDivElement>(null);
   const cv = useRef<HTMLCanvasElement>(null);
   const z = useRef(zoom);
   const pts = useRef(new Map<number, Pt>());
   const g = useRef<Gesture>({ kind: "none" });
-  const last = useRef(-1);
+  const last = useRef<{ x: number; y: number } | null>(null);
+  const mark = useRef<HTMLDivElement>(null);
   const active = tool !== null && mode !== "print";
 
   const fitScale = () => {
@@ -144,18 +148,44 @@ export default function ChartView({ chart, rev, mode, focus, tool, zoom, busy, o
     };
   }, []);
 
-  const cellAt = (p: Pt) => {
+  const squareAt = (p: Pt) => {
     const c = cv.current!, r = c.getBoundingClientRect(), sc = c.width / r.width;
     const x = Math.floor(((p.x - r.left) * sc - MARGIN) / CELL), y = Math.floor(((p.y - r.top) * sc - MARGIN) / CELL);
-    if (x < 0 || y < 0 || x >= chart.W || y >= chart.H) return -1;
-    const i = y * chart.W + x;
-    return tool === "paint" || chart.idx[i] >= 0 ? i : -1;
+    return x < 0 || y < 0 || x >= chart.W || y >= chart.H ? null : { x, y };
   };
+  const take = (x: number, y: number) => {
+    const i = y * chart.W + x;
+    if (tool === "paint" || chart.idx[i] >= 0) onCell(i);
+  };
+  /** visits the square under the pointer and every square on the way from the last one, so fast strokes leave no gaps */
   const visit = (p: Pt) => {
-    const i = cellAt(p);
-    if (i < 0 || i === last.current) return;
-    last.current = i;
-    onCell(i);
+    const q = squareAt(p);
+    if (!q) { last.current = null; return; }
+    const from = last.current;
+    if (from && from.x === q.x && from.y === q.y) return;
+    if (from) {
+      const steps = Math.max(Math.abs(q.x - from.x), Math.abs(q.y - from.y));
+      for (let s = 1; s < steps; s++) take(Math.round(from.x + ((q.x - from.x) * s) / steps), Math.round(from.y + ((q.y - from.y) * s) / steps));
+    }
+    take(q.x, q.y);
+    last.current = q;
+  };
+
+  /** outline of the squares the brush will cover */
+  const showMark = (p: Pt | null) => {
+    const m = mark.current, c = cv.current, v = viewer.current;
+    if (!m || !c || !v) return;
+    const q = p && tool === "paint" && mode !== "print" ? squareAt(p) : null;
+    if (!q) { m.style.display = "none"; return; }
+    const r = c.getBoundingClientRect(), vr = v.getBoundingClientRect(), px = r.width / c.width;
+    const half = Math.floor((brushSize - 1) / 2);
+    const x0 = Math.max(0, q.x - half), y0 = Math.max(0, q.y - half);
+    const x1 = Math.min(chart.W, q.x - half + brushSize), y1 = Math.min(chart.H, q.y - half + brushSize);
+    m.style.display = "block";
+    m.style.left = r.left - vr.left + v.scrollLeft + (MARGIN + x0 * CELL) * px + "px";
+    m.style.top = r.top - vr.top + v.scrollTop + (MARGIN + y0 * CELL) * px + "px";
+    m.style.width = (x1 - x0) * CELL * px + "px";
+    m.style.height = (y1 - y0) * CELL * px + "px";
   };
 
   /** drag the view; whatever the box can't scroll moves the page instead */
@@ -176,27 +206,31 @@ export default function ChartView({ chart, rev, mode, focus, tool, zoom, busy, o
     if (e.pointerType === "mouse" && e.button !== 0) return;
     const p = { x: e.clientX, y: e.clientY };
     pts.current.set(e.pointerId, p);
-    viewer.current!.setPointerCapture(e.pointerId);
+    try { viewer.current!.setPointerCapture(e.pointerId); } catch { /* some pens/emulators can't be captured; strokes still work */ }
     e.preventDefault();
     if (pts.current.size === 1) {
       if (active) {
         g.current = { kind: "draw", id: e.pointerId };
-        last.current = -1;
-        onStrokeStart();
+        last.current = null;
+        // pens with an eraser end (or eraser button) report button 5 (bit 32)
+        onStrokeStart(e.pointerType === "pen" && (e.buttons & 32) !== 0);
         visit(p);
+        showMark(p);
       } else g.current = { kind: "pan", id: e.pointerId, last: p };
     } else if (pts.current.size === 2) {
       if (g.current.kind === "draw") onStrokeCancel();
+      showMark(null);
       startPinch();
     }
   };
 
   const move = (e: React.PointerEvent) => {
+    if (e.pointerType !== "touch" && g.current.kind !== "pinch") showMark({ x: e.clientX, y: e.clientY }); // mouse or Pencil hovering
     if (!pts.current.has(e.pointerId)) return;
     const p = { x: e.clientX, y: e.clientY };
     pts.current.set(e.pointerId, p);
     const cur = g.current;
-    if (cur.kind === "draw" && cur.id === e.pointerId) visit(p);
+    if (cur.kind === "draw" && cur.id === e.pointerId) { visit(p); showMark(p); }
     else if (cur.kind === "pan" && cur.id === e.pointerId) {
       pan(p.x - cur.last.x, p.y - cur.last.y, !document.documentElement.classList.contains("fullchart"));
       cur.last = p;
@@ -211,7 +245,7 @@ export default function ChartView({ chart, rev, mode, focus, tool, zoom, busy, o
   const up = (e: React.PointerEvent) => {
     if (!pts.current.delete(e.pointerId)) return;
     const cur = g.current;
-    if (cur.kind === "draw" && cur.id === e.pointerId) { g.current = { kind: "none" }; onStrokeEnd(); }
+    if (cur.kind === "draw" && cur.id === e.pointerId) { g.current = { kind: "none" }; onStrokeEnd(); if (e.pointerType === "touch") showMark(null); }
     else if (cur.kind === "pan" && cur.id === e.pointerId) g.current = { kind: "none" };
     else if (cur.kind === "pinch") {
       // the finger left behind after a pinch shouldn't start drawing
@@ -227,8 +261,10 @@ export default function ChartView({ chart, rev, mode, focus, tool, zoom, busy, o
       onPointerMove={move}
       onPointerUp={up}
       onPointerCancel={up}
+      onPointerLeave={() => showMark(null)}
     >
       <canvas ref={cv} aria-label="Needlepoint chart" />
+      <div className="brushmark" ref={mark} aria-hidden="true" />
     </div>
   );
 }
