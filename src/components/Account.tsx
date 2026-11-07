@@ -1,4 +1,5 @@
 import { useState } from "react";
+import CustomerLinks from "./CustomerLinks";
 import { sendCode, signOut, syncLabel, syncNow, verifyCode, type SyncState } from "../lib/sync";
 
 interface Props {
@@ -7,10 +8,11 @@ interface Props {
   note: string;
   onClose: () => void;
   onSignedOut: () => void;
+  linksReload: number;
 }
 
 /** Sign in with an emailed code; once signed in, sync status and sign out. */
-export default function Account({ email, state, note, onClose, onSignedOut }: Props) {
+export default function Account({ email, state, note, onClose, onSignedOut, linksReload }: Props) {
   const [addr, setAddr] = useState("");
   const [code, setCode] = useState("");
   const [sent, setSent] = useState(false);
@@ -43,6 +45,7 @@ export default function Account({ email, state, note, onClose, onSignedOut }: Pr
               </>
             ) : <button className="mini" type="button" onClick={() => setConfirmOut(true)}>Sign out</button>}
           </div>
+          <CustomerLinks reload={linksReload} />
         </>
       ) : !sent ? (
         <form className="signin" onSubmit={e => {

@@ -143,3 +143,18 @@ html.fullchart,html.fullchart body{overflow:hidden}
 .txt.code{letter-spacing:.3em;font-family:var(--f-mono);max-width:200px}
 .note.sync.error{color:#c0392b}
 .codebox summary{cursor:pointer;margin-bottom:6px}
+
+/* customer page */
+.brand{font-family:var(--f-mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin:0 0 6px}
+.tracker{display:flex;flex-direction:column;gap:16px}
+.tfacts{max-width:560px}
+.savestate.saving{color:var(--accent)}
+.savestate.offline,.savestate.gone{color:#b5651d}
+
+/* customer links (maker side) */
+.links{display:flex;flex-direction:column;gap:8px}
+.linkrow{border:1px solid var(--line);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:6px}
+.linkrow.off{opacity:.6}
+.linkrow .url{font-family:var(--f-mono);font-size:12px;word-break:break-all;color:var(--muted)}
+.sendbox{display:flex;flex-direction:column;gap:8px;max-width:640px}
+.sendbox .url{font-family:var(--f-mono);font-size:13px;word-break:break-all;padding:8px 10px;border-radius:8px;background:var(--soft)}

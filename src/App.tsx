@@ -9,6 +9,7 @@ import { dbGet, dbPut, keepStorage } from "./lib/storage";
 import { deleteChart, getChart, listCharts, metaFor, newId, saveChart, touchChart, updateChart, type ChartMeta } from "./lib/library";
 import { startSync, syncLabel, type SyncState } from "./lib/sync";
 import Account from "./components/Account";
+import SendToCustomer from "./components/SendToCustomer";
 import Library from "./components/Library";
 import { makeBackup, openBackup } from "./lib/backup";
 import { buildInWorker } from "./lib/workerClient";
@@ -70,6 +71,8 @@ export default function App() {
   const [syncState, setSyncState] = useState<SyncState>("signed-out");
   const [syncNote, setSyncNote] = useState("");
   const [showAcct, setShowAcct] = useState(false);
+  const [sendOpen, setSendOpen] = useState(false);
+  const [linksReload, bumpLinks] = useReducer((n: number) => n + 1, 0);
   const remoteRef = useRef<(ids: string[]) => void>(() => {});
   useEffect(() => { refreshLibrary(); }, [refreshLibrary]);
 
@@ -405,6 +408,7 @@ export default function App() {
           note={syncNote}
           onClose={() => setShowAcct(false)}
           onSignedOut={() => location.reload()}
+          linksReload={linksReload}
         />
       )}
 
@@ -484,9 +488,21 @@ export default function App() {
                 {!full && <>
                   <button className="btn" type="button" disabled={!chart} onClick={() => setFull(true)}>Full screen</button>
                   <button className="btn" type="button" disabled={!chart} onClick={makeExport}>Make an image to save</button>
+                  <button className="btn" type="button" disabled={!chart} aria-pressed={sendOpen} onClick={() => setSendOpen(v => !v)}>Send to customer</button>
                 </>}
               </div>
               {!full && <p className="note">{hint}</p>}
+              {sendOpen && !full && chart && (
+                <SendToCustomer
+                  chart={chart}
+                  mesh={s.mesh}
+                  defaultTitle={library.find(m => m.id === currentId)?.name ?? baseName}
+                  signedIn={!!email}
+                  onSignIn={() => { setShowAcct(true); setShowLib(false); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                  onClose={() => setSendOpen(false)}
+                  onCreated={bumpLinks}
+                />
+              )}
               {tool === "paint" && chart && <BrushBar pal={chart.pal} brush={brush} onBrush={setBrush} onAdd={newColour} />}
               {full && tool !== "paint" && chart && mode !== "print" && <ColourBar pal={chart.pal} focus={focus} onFocus={toggleFocus} />}
 
