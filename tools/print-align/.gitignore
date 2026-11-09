@@ -1,0 +1,5 @@
+# big local files: scans are ~40-60 MB each, keep them out of git
+scans/
+work/
+.venv/
+__pycache__/
