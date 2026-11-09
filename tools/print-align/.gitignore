@@ -3,3 +3,5 @@ scans/
 work/
 .venv/
 __pycache__/
+charts/
+out/
