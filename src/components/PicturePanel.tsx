@@ -3,6 +3,8 @@ import { useState } from "react";
 interface Props {
   picture: { url: string; name: string; cutout?: boolean } | null;
   message: string;
+  /** a line under the picture's name */
+  note?: string;
   onPick: () => void;
   onFile: (f: File | undefined) => void;
   onCrop: () => void;
@@ -14,7 +16,7 @@ interface Props {
 }
 
 /** Upload box before a picture is chosen; thumbnail with Change and Crop after. */
-export default function PicturePanel({ picture, message, onPick, onFile, onCrop, savedName, canSave, onSave, onSaveCopy }: Props) {
+export default function PicturePanel({ picture, message, note, onPick, onFile, onCrop, savedName, canSave, onSave, onSaveCopy }: Props) {
   const [over, setOver] = useState(false);
   return (
     <div className="group">
@@ -24,6 +26,7 @@ export default function PicturePanel({ picture, message, onPick, onFile, onCrop,
           <img src={picture.url} alt="" className={picture.cutout ? "cut" : undefined} />
           <div>
             <div className="name">{picture.name}</div>
+            {note && <div className="note">{note}</div>}
             <div className="btns" style={{ marginTop: 6 }}>
               <button className="btn" type="button" onClick={onPick}>New picture</button>
               <button className="btn" type="button" onClick={onCrop}>Crop</button>

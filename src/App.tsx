@@ -13,6 +13,7 @@ import SendToCustomer from "./components/SendToCustomer";
 import PrintToCanvas from "./components/PrintToCanvas";
 import Library from "./components/Library";
 import { makeBackup, openBackup } from "./lib/backup";
+import { parseStitchly, stitchlyPicture } from "./lib/stitchly";
 import { buildInWorker } from "./lib/workerClient";
 import EmptyState from "./components/EmptyState";
 import PicturePanel from "./components/PicturePanel";
@@ -25,7 +26,7 @@ import Legend from "./components/Legend";
 import CropPanel from "./components/CropPanel";
 import ExportPanel from "./components/ExportPanel";
 
-const UPLOAD_HINT = "JPG, PNG or WebP. Pictures on a plain white background work best.";
+const UPLOAD_HINT = "JPG, PNG or WebP, or a Stitchly pattern (.stitchly). Pictures on a plain white background work best.";
 const toForm = (s: Settings): Form => ({ ...s, win: String(s.win), hin: String(s.hin) });
 const toSettings = (f: Form): Settings => ({ ...f, win: +f.win || 1, hin: +f.hin || 1 });
 
@@ -39,6 +40,8 @@ export default function App() {
   const [pic, setPic] = useState<Picture | null>(null);
   const [form, setForm] = useState<Form>(() => toForm(DEFAULT_SETTINGS));
   const [uploadMsg, setUploadMsg] = useState(UPLOAD_HINT);
+  /** shown under the picture's name, e.g. after opening a Stitchly pattern */
+  const [picNote, setPicNote] = useState("");
   const [chart, setChart] = useState<Chart | null>(null);
   // ticks and colour edits change the chart in place; bumping this redraws
   const [rev, bump] = useReducer((n: number) => n + 1, 0);
@@ -114,8 +117,25 @@ export default function App() {
   const source = !pic ? null : !s.cutout ? pic.img : cut?.pic === pic ? cut.canvas : null;
 
   /* ---------- picture loading ---------- */
-  const openFile = useCallback((f: File | undefined, saved?: Settings, id: string | null = null) => {
-    if (!f || !(f.type || "").startsWith("image/")) { setUploadMsg("That file isn't a picture. Try a JPG, PNG or WebP."); return; }
+  /** A Stitchly pattern becomes an exact one-pixel-per-stitch picture, with settings that rebuild it stitch for stitch. */
+  const stitchlyRef = useRef<(f: File) => Promise<void>>(async () => {});
+  stitchlyRef.current = async (f: File) => {
+    try {
+      const pic = stitchlyPicture(parseStitchly(await f.text()));
+      const c = document.createElement("canvas"); c.width = pic.W; c.height = pic.H;
+      c.getContext("2d")!.putImageData(new ImageData(pic.rgba, pic.W, pic.H), 0, 0);
+      const blob = await new Promise<Blob | null>(r => c.toBlob(r, "image/png"));
+      if (!blob) throw new Error("Couldn't turn the pattern into a picture.");
+      const note = pic.approx.length
+        ? `Opened from Stitchly, stitch for stitch. DMC ${pic.approx.join(" and ")} ${pic.approx.length > 1 ? "are" : "is"} variegated, so ${pic.approx.length > 1 ? "they show" : "it shows"} as the nearest solid thread.`
+        : "Opened from Stitchly, stitch for stitch, with its DMC threads.";
+      openFile(new File([blob], f.name.replace(/\.stitchly$/i, ".png"), { type: "image/png" }), pic.settings, null, note);
+    } catch (e) { setUploadMsg((e as Error).message || "Couldn't open that Stitchly file."); }
+  };
+
+  const openFile = useCallback((f: File | undefined, saved?: Settings, id: string | null = null, note = "") => {
+    if (f && /\.stitchly$/i.test(f.name)) { void stitchlyRef.current(f); return; }
+    if (!f || !(f.type || "").startsWith("image/")) { setUploadMsg("That file isn't a picture. Try a JPG, PNG or WebP, or a Stitchly pattern."); return; }
     const url = URL.createObjectURL(f);
     const img = new Image();
     img.onload = () => {
@@ -123,6 +143,7 @@ export default function App() {
       setPic(old => { if (old) URL.revokeObjectURL(old.url); return { img, file: f, url, name }; });
       setForm(cur => saved ? toForm({ ...DEFAULT_SETTINGS, ...saved }) : { ...cur, win: "5", crop: { x: 0, y: 0, w: 1, h: 1 } });
       setUploadMsg(UPLOAD_HINT);
+      setPicNote(note);
       setCropOpen(false); setExported(null);
       dbPut("file", { blob: f, name, type: f.type } satisfies SavedFile);
       setCurrentId(id); dbPut("currentId", id);
@@ -440,13 +461,14 @@ export default function App() {
         />
       )}
 
-      <input ref={fileInput} type="file" accept="image/*" hidden onChange={e => { openFile(e.target.files?.[0]); e.target.value = ""; }} />
+      <input ref={fileInput} type="file" accept="image/*,.stitchly" hidden onChange={e => { openFile(e.target.files?.[0]); e.target.value = ""; }} />
 
       <div className="grid">
         <aside className="rail" aria-label="Chart settings">
           <PicturePanel
             picture={pic && (s.cutout && cut?.pic === pic ? { ...pic, url: cut.url, cutout: true } : pic)}
             message={uploadMsg}
+            note={picNote}
             onPick={() => fileInput.current?.click()}
             onFile={f => openFile(f)}
             onCrop={() => setCropOpen(true)}
