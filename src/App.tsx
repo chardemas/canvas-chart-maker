@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { DEFAULT_SETTINGS, stitchSize, syncedHeight, syncedWidth, type Crop, type Settings } from "./lib/chart";
+import { DEFAULT_SETTINGS, exactChart, stitchSize, syncedHeight, syncedWidth, type Crop, type Settings } from "./lib/chart";
 import { threadByCode } from "./lib/dmc";
 import type { RGB } from "./lib/color";
 import { computeRegion, drawRegion } from "./lib/image";
@@ -133,8 +133,8 @@ export default function App() {
       const blob = await new Promise<Blob | null>(r => c.toBlob(r, "image/png"));
       if (!blob) throw new Error("Couldn't turn the pattern into a picture.");
       const note = pic.approx.length
-        ? `Opened from Stitchly, stitch for stitch. DMC ${pic.approx.join(" and ")} ${pic.approx.length > 1 ? "are" : "is"} variegated, so ${pic.approx.length > 1 ? "they show" : "it shows"} as the nearest solid thread.`
-        : "Opened from Stitchly, stitch for stitch, with its DMC threads.";
+        ? `Opened from Stitchly exactly: same stitches, threads and symbols. DMC ${pic.approx.join(" and ")} ${pic.approx.length > 1 ? "are variegated threads, shown" : "is a variegated thread, shown"} in an in-between colour.`
+        : "Opened from Stitchly exactly: same stitches, DMC threads and symbols.";
       openFile(new File([blob], f.name.replace(/\.stitchly$/i, ".png"), { type: "image/png" }), pic.settings, null, note);
     } catch (e) { setUploadMsg((e as Error).message || "Couldn't open that Stitchly file."); }
   };
@@ -147,7 +147,7 @@ export default function App() {
     img.onload = () => {
       const name = f.name || "Pasted picture";
       setPic(old => { if (old) URL.revokeObjectURL(old.url); return { img, file: f, url, name }; });
-      setForm(cur => saved ? toForm({ ...DEFAULT_SETTINGS, ...saved }) : { ...cur, win: "5", crop: { x: 0, y: 0, w: 1, h: 1 } });
+      setForm(cur => saved ? toForm({ ...DEFAULT_SETTINGS, ...saved }) : { ...cur, win: "5", crop: { x: 0, y: 0, w: 1, h: 1 }, exact: undefined });
       setUploadMsg(UPLOAD_HINT);
       setPicNote(note);
       setCropOpen(false); setExported(null);
@@ -217,9 +217,13 @@ export default function App() {
     setBusy(true);
     const t = setTimeout(async () => {
       const px = drawRegion(source, region, W, H, s.lock);
-      const built = await buildInWorker(px, W, H, { rm: s.rm, thr: s.thr, k: s.k, con: s.con, sat: s.sat, dmc: s.dmc });
+      const built = s.exact
+        ? exactChart(px, W, H, s.exact) // exactly as designed: no colour picking or matching
+        : await buildInWorker(px, W, H, { rm: s.rm, thr: s.thr, k: s.k, con: s.con, sat: s.sat, dmc: s.dmc });
       if (seq !== buildSeq.current) return; // settings changed meanwhile
-      const key = JSON.stringify([pic.file.name, pic.file.size, W, H, s.cutout, s.rm, s.thr, s.trim, s.lock, s.k, s.con, s.sat, s.dmc, s.crop]);
+      const key = JSON.stringify(s.exact
+        ? [pic.file.name, pic.file.size, W, H, "exact"]
+        : [pic.file.name, pic.file.size, W, H, s.cutout, s.rm, s.thr, s.trim, s.lock, s.k, s.con, s.sat, s.dmc, s.crop]);
       const next: Chart = { ...built, done: new Uint8Array(W * H), key };
       const saved = await dbGet<SavedProgress>("prog:" + key);
       if (seq !== buildSeq.current) return;
@@ -236,7 +240,7 @@ export default function App() {
       setFocus(-1); setChart(next); setBusy(false);
     }, 200);
     return () => clearTimeout(t);
-  }, [pic, source, region, W, H, s.cutout, s.lock, s.rm, s.thr, s.trim, s.k, s.con, s.sat, s.dmc, s.crop]);
+  }, [pic, source, region, W, H, s.cutout, s.lock, s.rm, s.thr, s.trim, s.k, s.con, s.sat, s.dmc, s.crop, s.exact]);
 
   /* ---------- progress ---------- */
   const saveTimer = useRef(0);
@@ -428,6 +432,7 @@ export default function App() {
   const hint = !chart ? "" : mode === "print"
     ? `Plain pixel version, ${(chart.W / s.mesh).toFixed(2)} × ${(chart.H / s.mesh).toFixed(2)} in. Save or print it from Share & print.`
     : tool === "paint" ? "Choose a colour below, then tap or drag over squares to repaint them. The eraser leaves squares unstitched. Undo puts them back. Use two fingers to zoom and move around; Full screen gives you more room."
+    : !onStitch && s.exact ? "This pattern is exactly as designed. Fix stitches repaints single squares. When it looks right, go to Stitch."
     : !onStitch ? "Adjust the picture and settings on the left; the chart updates as you go. Fix stitches repaints single squares. When it looks right, go to Stitch."
     : tool === "tick" ? "Tap or drag across stitches to tick them off. Tap a ticked stitch to untick it. Use two fingers to zoom and move around."
     : "Start at the red X in the centre. Turn on ticking to mark stitches as you paint them. Pinch to zoom, drag to move around.";
@@ -578,7 +583,7 @@ export default function App() {
               note={picNote}
               onPick={() => fileInput.current?.click()}
               onFile={f => openFile(f)}
-              onCrop={() => setCropOpen(true)}
+              onCrop={s.exact ? undefined : () => setCropOpen(true)}
               savedName={library.find(m => m.id === currentId)?.name ?? null}
               canSave={!!chart}
               onSave={() => saveToLibrary(false)}
@@ -587,7 +592,22 @@ export default function App() {
             {__STUDIO__ && !designOpen && (
               <button className="btn studio-btn" type="button" onClick={() => setDesignOpen(true)}>Design with Claude <span className="studio-tag">Studio</span></button>
             )}
-            {pic && <SettingsPanel form={form} update={update} size={size} chart={chart} cutStatus={cutStatus} />}
+            {pic && (s.exact ? (
+              <div className="group">
+                <span className="label">Exact pattern</span>
+                <p className="note">Opened exactly as designed: {W} × {H} stitches, {s.exact.length} threads, with its own symbols. The picture settings are off so nothing gets reconverted. Use Fix stitches to change squares.</p>
+                <div className="row">
+                  <label htmlFor="exact-mesh">Canvas mesh</label>
+                  <select id="exact-mesh" value={s.mesh} onChange={e => {
+                    const m = +e.target.value;
+                    setForm(f => ({ ...f, mesh: m, win: String(+(W / m).toFixed(4)), hin: String(+(H / m).toFixed(4)) }));
+                  }}>
+                    {[10, 12, 13, 14, 18].map(m => <option key={m} value={m}>{m} mesh</option>)}
+                  </select>
+                </div>
+                <p className="note">Finished size {(W / s.mesh).toFixed(2)} × {(H / s.mesh).toFixed(2)} in.</p>
+              </div>
+            ) : <SettingsPanel form={form} update={update} size={size} chart={chart} cutStatus={cutStatus} />)}
           </aside>
 
           <section className="stage">

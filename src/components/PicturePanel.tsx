@@ -7,7 +7,8 @@ interface Props {
   note?: string;
   onPick: () => void;
   onFile: (f: File | undefined) => void;
-  onCrop: () => void;
+  /** left out when cropping doesn't apply (an exact pattern) */
+  onCrop?: () => void;
   /** name in My charts, if this chart is saved there */
   savedName: string | null;
   canSave: boolean;
@@ -29,7 +30,7 @@ export default function PicturePanel({ picture, message, note, onPick, onFile, o
             {note && <div className="note">{note}</div>}
             <div className="btns" style={{ marginTop: 6 }}>
               <button className="btn" type="button" onClick={onPick}>New picture</button>
-              <button className="btn" type="button" onClick={onCrop}>Crop</button>
+              {onCrop && <button className="btn" type="button" onClick={onCrop}>Crop</button>}
             </div>
           </div>
           <div className="saverow">

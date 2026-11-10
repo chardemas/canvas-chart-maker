@@ -5,7 +5,7 @@
  * "DP892", "DB5200", "DBLANC", or "<id>-1 D817" for Stitchly's own blended colours.
  */
 import { threadByCode, type Thread } from "./dmc";
-import { DEFAULT_SETTINGS, type Settings } from "./chart";
+import { DEFAULT_SETTINGS, SYMS, type ExactThread, type Settings } from "./chart";
 
 type PValue = null | boolean | number | string | Uint8Array | PValue[] | { [k: string]: PValue } | { uid: number };
 
@@ -62,6 +62,8 @@ export interface StitchlyPattern {
   mesh: number;
   /** thread code per square, row by row; "" = unstitched */
   codes: string[];
+  /** Stitchly's chart symbol for each code, where it has one */
+  symbols: Record<string, string>;
 }
 
 const isUid = (v: PValue): v is { uid: number } => !!v && typeof v === "object" && !Array.isArray(v) && !(v instanceof Uint8Array) && "uid" in v;
@@ -81,52 +83,71 @@ export function parseStitchly(xml: string): StitchlyPattern {
   if (!W || !H || cells.length !== W * H) throw new Error("Couldn't read the stitches in this Stitchly file.");
   const codes = cells.map(c => { const s = String(get(c)); return s.endsWith("empty") ? "" : s; });
   const name = String(get(root.patternName) ?? "Stitchly pattern");
-  return { name: name === "$null" ? "Stitchly pattern" : name, W, H, mesh: Number(get(root.fabricCount)) || 18, codes };
+  const symbols: Record<string, string> = {};
+  const dict = get(root.symbolsForCodes) as Record<string, PValue> | undefined;
+  const keys = (dict?.["NS.keys"] ?? []) as PValue[], vals = (dict?.["NS.objects"] ?? []) as PValue[];
+  keys.forEach((k, i) => { const sym = String(get(vals[i])); if (sym && sym !== "$null") symbols[String(get(k))] = sym; });
+  return { name: name === "$null" ? "Stitchly pattern" : name, W, H, mesh: Number(get(root.fabricCount)) || 18, codes, symbols };
 }
 
 /** DMC variegated threads that aren't in the colour list: an in-between colour for each. */
-const VARIEGATED: Record<string, [number, number, number]> = { "48": [240, 176, 196], "107": [228, 120, 150] };
+const VARIEGATED: Record<string, { name: string; rgb: [number, number, number] }> = {
+  "48": { name: "Variegated Baby Pink", rgb: [240, 176, 196] },
+  "107": { name: "Variegated Pink", rgb: [228, 120, 150] },
+};
 
 /** The DMC thread a Stitchly code stands for, or its colour if it's a thread not in the list. */
-export function threadForCode(code: string): { thread?: Thread; rgb?: [number, number, number]; dmc: string } {
+export function threadForCode(code: string): { thread?: Thread; rgb?: [number, number, number]; name?: string; dmc: string } {
   const last = code.trim().split(/\s+/).pop() ?? "";
   const dmc = last.replace(/^DP?(?=[0-9]|B5200|BLANC|ECRU)/i, "");
   const thread = threadByCode(dmc) ?? threadByCode(dmc.charAt(0).toUpperCase() + dmc.slice(1).toLowerCase());
-  return thread ? { thread, dmc } : { rgb: VARIEGATED[dmc], dmc };
+  return thread ? { thread, dmc } : { rgb: VARIEGATED[dmc]?.rgb, name: VARIEGATED[dmc]?.name, dmc };
 }
 
 export interface StitchlyPicture {
-  /** RGBA, one pixel per stitch, see-through where unstitched */
+  /** RGBA, one pixel per stitch, see-through where unstitched; each thread has its own exact colour */
   rgba: Uint8ClampedArray;
   W: number;
   H: number;
   colours: number;
-  /** codes shown as something close rather than exactly */
+  /** variegated threads, shown in an in-between colour */
   approx: string[];
-  /** chart settings that turn this picture back into exactly this pattern */
+  /** settings that open this picture as exactly this pattern (threads, order and symbols) */
   settings: Settings;
 }
 
-/** The pattern as an exact picture plus the settings that rebuild it stitch for stitch. */
+/** The pattern as an exact picture plus the settings that open it unchanged: no colour picking, Stitchly's symbols. */
 export function stitchlyPicture(p: StitchlyPattern): StitchlyPicture {
   const rgba = new Uint8ClampedArray(p.W * p.H * 4);
-  const colours = new Set<string>(), approx = new Set<string>();
+  const threads: ExactThread[] = [], byCode = new Map<string, ExactThread>(), usedRgb = new Set<string>(), approx = new Set<string>();
+  const usedSym = new Set<string>();
   p.codes.forEach((code, i) => {
     if (!code) return;
     const t = threadForCode(code);
-    const rgb = t.thread?.rgb ?? t.rgb ?? [128, 128, 128];
-    if (!t.thread) approx.add(t.dmc || code);
-    colours.add(rgb.join(","));
-    rgba.set([rgb[0], rgb[1], rgb[2], 255], i * 4);
+    const key = t.thread?.code ?? (t.dmc || code);
+    let e = byCode.get(key);
+    if (!e) {
+      const rgb: [number, number, number] = [...(t.thread?.rgb ?? t.rgb ?? [128, 128, 128])] as [number, number, number];
+      if (!t.thread) approx.add(key);
+      // every thread needs its own pixel colour; nudge an approximate colour that clashes
+      while (usedRgb.has(rgb.join(","))) rgb[2] = rgb[2] < 255 ? rgb[2] + 1 : rgb[2] - 1;
+      usedRgb.add(rgb.join(","));
+      const want = p.symbols[code];
+      const sym = want && !usedSym.has(want) ? want : SYMS.find(x => !usedSym.has(x)) ?? "?";
+      usedSym.add(sym);
+      e = { code: key, name: t.thread?.name ?? t.name ?? `Thread ${key}`, rgb, sym };
+      byCode.set(key, e); threads.push(e);
+    }
+    rgba.set([e.rgb[0], e.rgb[1], e.rgb[2], 255], i * 4);
   });
-  const win = +(p.W / p.mesh).toFixed(4);
   return {
-    rgba, W: p.W, H: p.H, colours: colours.size, approx: [...approx],
+    rgba, W: p.W, H: p.H, colours: threads.length, approx: [...approx],
     settings: {
       ...DEFAULT_SETTINGS,
       cutout: false, rm: false, trim: false, lock: true, con: 1, sat: 1, dmc: true,
-      mesh: p.mesh, win, hin: +(p.H / p.mesh).toFixed(4), k: Math.max(2, colours.size),
+      mesh: p.mesh, win: +(p.W / p.mesh).toFixed(4), hin: +(p.H / p.mesh).toFixed(4), k: Math.max(2, threads.length),
       crop: { x: 0, y: 0, w: 1, h: 1 },
+      exact: threads,
     },
   };
 }

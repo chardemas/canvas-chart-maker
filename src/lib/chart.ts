@@ -3,8 +3,8 @@
  * one-pixel-per-stitch picture data into a palette plus a stitch grid.
  * Runs inside the Web Worker and in the tests.
  */
-import { clamp, lum, type RGB } from "./color";
-import { nearestDMC, type Thread } from "./dmc";
+import { clamp, lum, toLab, type RGB } from "./color";
+import { nearestDMC, threadByCode, type Thread } from "./dmc";
 
 export const SYMS = ["●", "▲", "■", "◆", "★", "✚", "♥", "▼", "◐", "✖", "♣", "♠", "○", "△", "□", "◇", "☆", "✕", "♦", "▽", "◑", "✦", "☾", "⬟"];
 export const MAX_ST = 300;
@@ -27,7 +27,12 @@ export interface Settings {
   sat: number;      // colour boost
   dmc: boolean;     // snap to exact DMC colours
   crop: Crop;
+  /** a pattern opened exactly as designed (e.g. from Stitchly): each picture colour is one of these
+   *  threads, in this order, with these symbols; the colour settings are skipped */
+  exact?: ExactThread[];
 }
+
+export interface ExactThread { code: string; name: string; rgb: RGB; sym: string }
 
 export const DEFAULT_SETTINGS: Settings = {
   cutout: false, rm: true, thr: 234, trim: true, mesh: 18, win: 5, hin: 5, lock: true,
@@ -169,4 +174,24 @@ export function buildChart(px: ArrayLike<number>, W: number, H: number, s: Pick<
   for (let j = 0; j < fg.length; j++) idx[fg[j][3]] = re[map[lab[j]]];
 
   return { W, H, idx, pal, bg: N - fg.length };
+}
+
+/** A chart straight from an exact one-pixel-per-stitch picture: no colour picking or matching. */
+export function exactChart(px: ArrayLike<number>, W: number, H: number, threads: ExactThread[]): BuiltChart {
+  const byRgb = new Map(threads.map((t, i) => [t.rgb.join(","), i]));
+  const idx = new Int16Array(W * H).fill(-1);
+  const counts = new Array<number>(threads.length).fill(0);
+  let bg = 0;
+  for (let i = 0; i < W * H; i++) {
+    if (px[i * 4 + 3] < 128) { bg++; continue; }
+    const k = byRgb.get(`${px[i * 4]},${px[i * 4 + 1]},${px[i * 4 + 2]}`);
+    if (k === undefined) { bg++; continue; }
+    idx[i] = k; counts[k]++;
+  }
+  const pal: PaletteEntry[] = threads.map((t, k) => ({
+    rgb: [...t.rgb] as RGB,
+    thread: threadByCode(t.code) ?? { code: t.code, name: t.name, rgb: [...t.rgb] as RGB, lab: toLab(t.rgb) },
+    count: counts[k], done: 0, sym: t.sym,
+  }));
+  return { W, H, idx, pal, bg };
 }
