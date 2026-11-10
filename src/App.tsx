@@ -427,9 +427,9 @@ export default function App() {
 
   const hint = !chart ? "" : mode === "print"
     ? `Plain pixel version, ${(chart.W / s.mesh).toFixed(2)} × ${(chart.H / s.mesh).toFixed(2)} in. Save or print it from Share & print.`
-    : !onStitch ? "Adjust the picture and settings on the left; the chart updates as you go. When it looks right, go to Stitch."
-    : tool === "tick" ? "Tap or drag across stitches to tick them off. Tap a ticked stitch to untick it. Use two fingers to zoom and move around."
     : tool === "paint" ? "Choose a colour below, then tap or drag over squares to repaint them. The eraser leaves squares unstitched. Undo puts them back. Use two fingers to zoom and move around; Full screen gives you more room."
+    : !onStitch ? "Adjust the picture and settings on the left; the chart updates as you go. Fix stitches repaints single squares. When it looks right, go to Stitch."
+    : tool === "tick" ? "Tap or drag across stitches to tick them off. Tap a ticked stitch to untick it. Use two fingers to zoom and move around."
     : "Start at the red X in the centre. Turn on ticking to mark stitches as you paint them. Pinch to zoom, drag to move around.";
 
   const baseName = (pic?.name ?? "chart").replace(/\.[^.]+$/, "");
@@ -460,6 +460,14 @@ export default function App() {
         </div>
         {!full && <button className="btn" type="button" disabled={!chart} onClick={() => setFull(true)}>Full screen</button>}
       </div>
+      {!onStitch && (
+        <div className="bar">
+          <button className="btn" type="button" aria-pressed={tool === "paint"} disabled={mode === "print" || !chart} onClick={() => pickTool("paint")}>
+            {tool === "paint" ? "Fixing on" : "Fix stitches"}
+          </button>
+          <button className="btn" type="button" disabled={!canUndo} onClick={doUndo}>Undo</button>
+        </div>
+      )}
       {onStitch && (
         <div className="bar">
           <button className="btn" type="button" aria-pressed={tool === "tick"} disabled={mode === "print"} onClick={() => pickTool("tick")}>
@@ -476,11 +484,11 @@ export default function App() {
         </div>
       )}
       {!full && <p className="note">{hint}</p>}
-      {onStitch && tool === "paint" && chart && <BrushBar pal={chart.pal} brush={brush} onBrush={setBrush} onAdd={newColour} size={brushSize} onSize={setBrushSize} />}
+      {tool === "paint" && chart && <BrushBar pal={chart.pal} brush={brush} onBrush={setBrush} onAdd={newColour} size={brushSize} onSize={setBrushSize} />}
       {full && tool !== "paint" && chart && mode !== "print" && <ColourBar pal={chart.pal} focus={focus} onFocus={toggleFocus} />}
       {chart ? (
         <ChartView
-          chart={chart} rev={rev} mode={mode} focus={focus} tool={onStitch ? tool : null} zoom={zoom} busy={busy || !source}
+          chart={chart} rev={rev} mode={mode} focus={focus} tool={onStitch || tool === "paint" ? tool : null} zoom={zoom} busy={busy || !source}
           onZoom={setZoom}
           brushSize={tool === "paint" ? brushSize : 1}
           onStrokeStart={strokeStart}
