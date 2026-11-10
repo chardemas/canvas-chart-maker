@@ -53,15 +53,16 @@ dx, dy, r = shift(y0, y1, x0, x1)
 print(f"\nWHOLE CHART: ink landed {dx * MM:+.2f} mm across (+ = right), {dy * MM:+.2f} mm down (+ = toward bottom)   [confidence {r:.2f}]")
 n = a.tiles; tx = np.linspace(x0, x1, n + 1).astype(int); ty = np.linspace(y0, y1, n + 1).astype(int)
 print(f"\nper tile ({n}x{n}), mm  (dx, dy):")
-F = np.zeros((n, n, 2)); C = np.zeros((n, n, 2))
+F = np.zeros((n, n, 2)); C = np.zeros((n, n, 2)); Q = np.zeros((n, n))
 for i in range(n):
     row = []
     for j in range(n):
-        dx, dy, r = shift(ty[i], ty[i + 1], tx[j], tx[j + 1]); F[i, j] = dx * MM, dy * MM
+        dx, dy, r = shift(ty[i], ty[i + 1], tx[j], tx[j + 1]); F[i, j] = dx * MM, dy * MM; Q[i, j] = r
         C[i, j] = pa.to_page(H2, np.array([[(tx[j] + tx[j + 1]) / 2, (ty[i] + ty[i + 1]) / 2]]), (0, 0))[0]
-        row.append(f"({dx * MM:+.2f},{dy * MM:+.2f})")
+        row.append(f"({dx * MM:+.2f},{dy * MM:+.2f})" if r >= 0.3 else "   (blank)   ")
     print("  " + "  ".join(row))
-mag = np.hypot(*F.reshape(-1, 2).T)
+good = Q.ravel() >= 0.3  # tiles with too little design to measure are left out
+mag = np.hypot(*F.reshape(-1, 2).T)[good]
 print(f"\ntile shift size: mean {mag.mean():.2f} mm, max {mag.max():.2f} mm   (stitch spacing {pitch * MM:.2f} mm; ink stays on the crossing while < ~{pitch * MM / 2:.2f} mm)")
 # saved for fit_profile.py: page-px tile centres and measured shifts in mm
-np.savez(Path(a.after).with_suffix('.shift.npz'), centres=C.reshape(-1, 2), shifts_mm=F.reshape(-1, 2))
+np.savez(Path(a.after).with_suffix('.shift.npz'), centres=C.reshape(-1, 2)[good], shifts_mm=F.reshape(-1, 2)[good])
