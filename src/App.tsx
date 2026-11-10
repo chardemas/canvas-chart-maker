@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, us
 import { DEFAULT_SETTINGS, exactChart, stitchSize, syncedHeight, syncedWidth, type Crop, type Settings } from "./lib/chart";
 import { threadByCode } from "./lib/dmc";
 import type { RGB } from "./lib/color";
-import { computeRegion, drawRegion } from "./lib/image";
+import { computeRegion, drawRegion, exactPixels } from "./lib/image";
 import { applyMask, findSubject, type Mask } from "./lib/cutout";
 import { renderExport, type Chart, type Mode } from "./lib/render";
 import { dbGet, dbPut, keepStorage } from "./lib/storage";
@@ -216,13 +216,16 @@ export default function App() {
     const seq = ++buildSeq.current;
     setBusy(true);
     const t = setTimeout(async () => {
-      const px = drawRegion(source, region, W, H, s.lock);
+      // an exact pattern is copied stitch for stitch (whole-stitch crop, no resampling)
+      const px = s.exact
+        ? exactPixels(source, Math.round(s.crop.x * source.width), Math.round(s.crop.y * source.height), W, H)
+        : drawRegion(source, region, W, H, s.lock);
       const built = s.exact
         ? exactChart(px, W, H, s.exact) // exactly as designed: no colour picking or matching
         : await buildInWorker(px, W, H, { rm: s.rm, thr: s.thr, k: s.k, con: s.con, sat: s.sat, dmc: s.dmc });
       if (seq !== buildSeq.current) return; // settings changed meanwhile
       const key = JSON.stringify(s.exact
-        ? [pic.file.name, pic.file.size, W, H, "exact"]
+        ? [pic.file.name, pic.file.size, W, H, "exact", s.crop]
         : [pic.file.name, pic.file.size, W, H, s.cutout, s.rm, s.thr, s.trim, s.lock, s.k, s.con, s.sat, s.dmc, s.crop]);
       const next: Chart = { ...built, done: new Uint8Array(W * H), key };
       const saved = await dbGet<SavedProgress>("prog:" + key);
@@ -583,7 +586,7 @@ export default function App() {
               note={picNote}
               onPick={() => fileInput.current?.click()}
               onFile={f => openFile(f)}
-              onCrop={s.exact ? undefined : () => setCropOpen(true)}
+              onCrop={() => setCropOpen(true)}
               savedName={library.find(m => m.id === currentId)?.name ?? null}
               canSave={!!chart}
               onSave={() => saveToLibrary(false)}
@@ -595,7 +598,7 @@ export default function App() {
             {pic && (s.exact ? (
               <div className="group">
                 <span className="label">Exact pattern</span>
-                <p className="note">Opened exactly as designed: {W} × {H} stitches, {s.exact.length} threads, with its own symbols. The picture settings are off so nothing gets reconverted. Use Fix stitches to change squares.</p>
+                <p className="note">Opened exactly as designed: {W} × {H} stitches, {s.exact.length} threads, with its own symbols. The picture settings are off so nothing gets reconverted. Crop keeps whole stitches; Fix stitches changes squares.</p>
                 <div className="row">
                   <label htmlFor="exact-mesh">Canvas mesh</label>
                   <select id="exact-mesh" value={s.mesh} onChange={e => {
@@ -617,7 +620,14 @@ export default function App() {
                   <CropPanel
                     img={pic.img}
                     crop={form.crop}
-                    onApply={(c: Crop) => { setCropOpen(false); setForm(f => ({ ...f, crop: c })); }}
+                    stitches={!!s.exact}
+                    onApply={(c: Crop) => {
+                      setCropOpen(false);
+                      if (!s.exact) { setForm(f => ({ ...f, crop: c })); return; }
+                      // exact pattern: the stitch count is the cropped size, unchanged
+                      const cw = Math.round(c.w * pic.img.width), ch = Math.round(c.h * pic.img.height);
+                      setForm(f => ({ ...f, crop: c, win: String(+(cw / f.mesh).toFixed(4)), hin: String(+(ch / f.mesh).toFixed(4)) }));
+                    }}
                     onCancel={() => setCropOpen(false)}
                   />
                 )}

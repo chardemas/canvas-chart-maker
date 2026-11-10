@@ -43,3 +43,12 @@ export function drawRegion(src: Source, region: Box, W: number, H: number, lock:
   g.imageSmoothingQuality = "high"; g.drawImage(cur, ox, oy, bw, bh);
   return g.getImageData(0, 0, W, H).data;
 }
+
+/** An exact copy of whole pixels (x, y, w, h) of a picture, with no resampling. For exact patterns. */
+export function exactPixels(src: Source, x: number, y: number, w: number, h: number): Uint8ClampedArray {
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const g = c.getContext("2d", { willReadFrequently: true })!;
+  g.imageSmoothingEnabled = false;
+  g.drawImage(src, x, y, w, h, 0, 0, w, h);
+  return g.getImageData(0, 0, w, h).data;
+}
