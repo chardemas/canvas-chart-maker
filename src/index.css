@@ -163,3 +163,11 @@ html.fullchart,html.fullchart body{overflow:hidden}
 .bsize input{width:120px}
 .bsize .mono{min-width:42px;font-size:13px}
 .brushmark{position:absolute;pointer-events:none;border:2px solid var(--accent);box-shadow:0 0 0 1px #fff;border-radius:2px;display:none}
+
+/* print on canvas */
+.printcanvas .steps{margin:0;padding-left:22px;display:flex;flex-direction:column;gap:10px;font-size:14px}
+.printcanvas .steps .btns{margin-top:6px}
+.pc-views{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start}
+.pc-views figure{margin:0;display:flex;flex-direction:column;gap:6px;flex:1 1 280px;min-width:0}
+.pc-overview{width:100%;max-width:520px;height:auto;border:1px solid var(--line);border-radius:8px;cursor:crosshair;background:#fff}
+.pc-closeup{width:100%;max-width:480px;height:auto;border:1px solid var(--line);border-radius:8px;image-rendering:pixelated;background:#fff}

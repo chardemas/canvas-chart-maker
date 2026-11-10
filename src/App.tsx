@@ -10,6 +10,7 @@ import { deleteChart, getChart, listCharts, metaFor, newId, saveChart, touchChar
 import { startSync, syncLabel, type SyncState } from "./lib/sync";
 import Account from "./components/Account";
 import SendToCustomer from "./components/SendToCustomer";
+import PrintToCanvas from "./components/PrintToCanvas";
 import Library from "./components/Library";
 import { makeBackup, openBackup } from "./lib/backup";
 import { buildInWorker } from "./lib/workerClient";
@@ -73,6 +74,7 @@ export default function App() {
   const [syncNote, setSyncNote] = useState("");
   const [showAcct, setShowAcct] = useState(false);
   const [sendOpen, setSendOpen] = useState(false);
+  const [printOpen, setPrintOpen] = useState(false);
   const [linksReload, bumpLinks] = useReducer((n: number) => n + 1, 0);
   const remoteRef = useRef<(ids: string[]) => void>(() => {});
   useEffect(() => { refreshLibrary(); }, [refreshLibrary]);
@@ -501,6 +503,7 @@ export default function App() {
                   <button className="btn" type="button" disabled={!chart} onClick={() => setFull(true)}>Full screen</button>
                   <button className="btn" type="button" disabled={!chart} onClick={makeExport}>Make an image to save</button>
                   <button className="btn" type="button" disabled={!chart} aria-pressed={sendOpen} onClick={() => setSendOpen(v => !v)}>Send to customer</button>
+                  <button className="btn" type="button" disabled={!chart} aria-pressed={printOpen} onClick={() => setPrintOpen(v => !v)}>Print on canvas</button>
                 </>}
               </div>
               {!full && <p className="note">{hint}</p>}
@@ -514,6 +517,9 @@ export default function App() {
                   onClose={() => setSendOpen(false)}
                   onCreated={bumpLinks}
                 />
+              )}
+              {printOpen && !full && chart && (
+                <PrintToCanvas chart={chart} mesh={s.mesh} baseName={baseName} onClose={() => setPrintOpen(false)} />
               )}
               {tool === "paint" && chart && <BrushBar pal={chart.pal} brush={brush} onBrush={setBrush} onAdd={newColour} size={brushSize} onSize={setBrushSize} />}
               {full && tool !== "paint" && chart && mode !== "print" && <ColourBar pal={chart.pal} focus={focus} onFocus={toggleFocus} />}
