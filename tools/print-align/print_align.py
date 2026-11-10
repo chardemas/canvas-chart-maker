@@ -96,16 +96,25 @@ def find_dots(gray: np.ndarray):
 
 
 def scan_to_page(gray: np.ndarray, no_marks: bool):
+    """3x3 homography scan px -> page px through the 4 carrier dots (absorbs slight keystone from the carrier's own feed)."""
     if no_marks:
         print("  no carrier dots: assuming the paper sat exactly in the scanner corner (testing only)")
-        return np.array([[1, 0, 0], [0, 1, 0]], float)
+        return np.eye(3)
     dots = find_dots(gray)
     if dots is None:
         sys.exit("Couldn't find the 4 carrier corner dots. Is the tape covering one, or is the scan rotated?")
-    A, _ = cv2.estimateAffine2D(dots.astype(np.float32), (DOTS_IN * DPI).astype(np.float32), method=cv2.LMEDS)
-    res = np.hypot(*((dots @ A[:, :2].T + A[:, 2]) - DOTS_IN * DPI).T) / DPI * 25.4
-    print(f"  carrier dots found; scan->page fit error max {res.max():.2f} mm, rotation {np.degrees(np.arctan2(A[1, 0], A[0, 0])):+.2f}°")
-    return A
+    Hm = cv2.getPerspectiveTransform(dots.astype(np.float32), (DOTS_IN * DPI).astype(np.float32))
+    d = lambda a, b: np.hypot(*(dots[a] - dots[b])) / DPI * 25.4
+    print(f"  carrier dots found; rotation {np.degrees(np.arctan2(*(dots[1] - dots[0])[::-1])):+.2f}°,"
+          f" sides top {d(0, 1):.2f} bottom {d(2, 3):.2f} left {d(0, 2):.2f} right {d(1, 3):.2f} mm"
+          f" (printed 190.50 / 254.00)")
+    return Hm
+
+
+def to_page(Hm: np.ndarray, pts: np.ndarray, nudge_px) -> np.ndarray:
+    sh = pts.shape
+    out = cv2.perspectiveTransform(pts.reshape(-1, 1, 2).astype(np.float64), Hm).reshape(sh)
+    return out + np.asarray(nudge_px)
 
 
 # ---------- mesh detection ----------
@@ -198,8 +207,8 @@ def make(scan_path: Path, chart_path: Path, out_dir: Path, no_marks: bool, offse
     if bgr is None:
         sys.exit(f"can't read {scan_path}")
     gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
-    A = scan_to_page(gray, no_marks)
-    A = A.copy(); A[:, 2] += np.array(nudge_mm) / 25.4 * DPI
+    Hm = scan_to_page(gray, no_marks)
+    nudge_px = np.array(nudge_mm) / 25.4 * DPI
 
     holes, ex, ey, pitch = detect_holes(gray)
     cols, blank = load_chart(chart_path)
@@ -221,21 +230,21 @@ def make(scan_path: Path, chart_path: Path, out_dir: Path, no_marks: bool, offse
     if unseen > 0.02:
         print(f"  warning: {unseen:.0%} of the chart sits where no holes were seen (under tape?) - those spots are estimated")
 
-    pos_page = pos @ A[:, :2].T + A[:, 2]
+    pos_page = to_page(Hm, pos, nudge_px)
     page = render(pos_page, cols, blank, (ai, aj), grow)
 
     stem = chart_path.stem
     out_dir.mkdir(parents=True, exist_ok=True)
     pdf = out_dir / f"{stem}-canvas.pdf"
     save_pdf(page, pdf)
-    preview(bgr, page, A, pos, (ai, aj), (W, H), out_dir / f"{stem}-preview.png")
+    preview(bgr, page, Hm, nudge_px, pos, (ai, aj), (W, H), out_dir / f"{stem}-preview.png")
     print(f"  wrote {pdf}\n  wrote {out_dir / (stem + '-preview.png')}")
 
 
-def preview(bgr, page, A, pos, at, size, out: Path):
+def preview(bgr, page, Hm, nudge_px, pos, at, size, out: Path):
     """The planned print drawn back onto the scan: full view + a close-up at the chart's top-left corner."""
-    Ai = cv2.invertAffineTransform(A)
-    back = cv2.warpAffine(page, Ai, (bgr.shape[1], bgr.shape[0]), flags=cv2.INTER_LINEAR, borderValue=(255, 255, 255))
+    T = np.array([[1, 0, nudge_px[0]], [0, 1, nudge_px[1]], [0, 0, 1]]) @ Hm
+    back = cv2.warpPerspective(page, np.linalg.inv(T), (bgr.shape[1], bgr.shape[0]), flags=cv2.INTER_LINEAR, borderValue=(255, 255, 255))
     back = cv2.cvtColor(back, cv2.COLOR_RGB2BGR)
     inked = (back < 250).any(-1)
     mix = bgr.copy()
