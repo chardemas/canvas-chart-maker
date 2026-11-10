@@ -201,7 +201,22 @@ def render(pos_page: np.ndarray, cols: np.ndarray, blank: np.ndarray, at: tuple[
     return page
 
 
-def make(scan_path: Path, chart_path: Path, out_dir: Path, no_marks: bool, offset, grow: float, nudge_mm):
+def load_profile(path: Path | None):
+    if path is None or not path.exists():
+        return None
+    import json
+    p = json.loads(path.read_text())
+    return np.array(p["centre"]), np.array(p["A"]), np.array(p["t"])
+
+
+def precorrect(q: np.ndarray, prof) -> np.ndarray:
+    """Printer prints p at p + A(p-c) + t; return the p that lands on q."""
+    c, A, t = prof
+    M = np.linalg.inv(np.eye(2) + A)
+    return c + (q.reshape(-1, 2) - c - t) @ M.T
+
+
+def make(scan_path: Path, chart_path: Path, out_dir: Path, no_marks: bool, offset, grow: float, nudge_mm, profile: Path | None):
     print(f"reading {scan_path.name}")
     bgr = cv2.imread(str(scan_path))
     if bgr is None:
@@ -231,13 +246,21 @@ def make(scan_path: Path, chart_path: Path, out_dir: Path, no_marks: bool, offse
         print(f"  warning: {unseen:.0%} of the chart sits where no holes were seen (under tape?) - those spots are estimated")
 
     pos_page = to_page(Hm, pos, nudge_px)
-    page = render(pos_page, cols, blank, (ai, aj), grow)
+    target = render(pos_page, cols, blank, (ai, aj), grow)  # where the ink should land (used for the preview)
+    prof = load_profile(profile)
+    if prof is not None:
+        c, A, t = prof
+        print(f"  printer profile {profile.name}: correcting {t[0] / DPI * 25.4:+.2f} mm across, {t[1] / DPI * 25.4:+.2f} mm down,"
+              f" {np.degrees((A[1, 0] - A[0, 1]) / 2):+.2f}° rotation")
+        page = render(precorrect(pos_page, prof).reshape(pos_page.shape), cols, blank, (ai, aj), grow)
+    else:
+        page = target
 
     stem = chart_path.stem
     out_dir.mkdir(parents=True, exist_ok=True)
     pdf = out_dir / f"{stem}-canvas.pdf"
     save_pdf(page, pdf)
-    preview(bgr, page, Hm, nudge_px, pos, (ai, aj), (W, H), out_dir / f"{stem}-preview.png")
+    preview(bgr, target, Hm, nudge_px, pos, (ai, aj), (W, H), out_dir / f"{stem}-preview.png")
     print(f"  wrote {pdf}\n  wrote {out_dir / (stem + '-preview.png')}")
 
 
@@ -276,6 +299,9 @@ def main():
     m.add_argument("--no-marks", action="store_true", help="testing only: scan has no carrier dots")
     m.add_argument("--offset", type=int, nargs=2, default=(0, 0), metavar=("COLS", "ROWS"), help="move the chart by whole stitches")
     m.add_argument("--grow", type=float, default=1.0, help="scale each stitch patch, e.g. 1.1 for overlap")
+    m.add_argument("--profile", type=Path, default=Path(__file__).with_name("printer_profile.json"),
+                   help="printer correction from scripts/fit_profile.py (default: printer_profile.json if present)")
+    m.add_argument("--no-profile", action="store_true", help="don't correct for the printer")
     m.add_argument("--nudge", type=float, nargs=2, default=(0, 0), metavar=("X_MM", "Y_MM"), help="shift the print to correct printer bias")
     a = ap.parse_args()
     if a.cmd == "carrier":
@@ -283,7 +309,7 @@ def main():
     elif a.cmd == "testchart":
         make_testchart(a.out, *a.size); print(f"wrote {a.out}")
     else:
-        make(a.scan, a.chart, a.out_dir, a.no_marks, a.offset, a.grow, a.nudge)
+        make(a.scan, a.chart, a.out_dir, a.no_marks, a.offset, a.grow, a.nudge, None if a.no_profile else a.profile)
 
 
 if __name__ == "__main__":
