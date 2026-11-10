@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Chart } from "../lib/render";
-import { centredAnchor, checkFit, ET2803, holeAt, stitchQuad, type Pt } from "../lib/canvasPrint";
+import { centredAnchor, checkFit, ET2803, holeAt, rotateGrid, stitchQuad, type Pt } from "../lib/canvasPrint";
 import { analyseScan, makePrintPdf, scanCrop, type Analysed } from "../lib/canvasPrintClient";
 import { carrierPdf } from "../lib/pdf";
 
@@ -36,7 +36,10 @@ export default function PrintToCanvas({ chart, mesh, baseName, onClose }: Props)
   const fileInput = useRef<HTMLInputElement>(null);
   const overview = useRef<HTMLCanvasElement>(null);
   const closeup = useRef<HTMLCanvasElement>(null);
-  const { W, H, idx, pal } = chart;
+  const [turns, setTurns] = useState(0);
+  const { pal } = chart;
+  // the design as it will print: turned on the canvas if asked, the chart itself is untouched
+  const { W, H, idx } = useMemo(() => rotateGrid(chart.idx, chart.W, chart.H, turns), [chart.idx, chart.W, chart.H, turns]);
 
   const colours = useMemo(() => pal.map(p => `rgb(${p.rgb.join(",")})`), [pal]);
   const fit = scan && at ? checkFit(scan.lattice, W, H, at[0], at[1]) : null;
@@ -115,6 +118,16 @@ export default function PrintToCanvas({ chart, mesh, baseName, onClose }: Props)
 
   const move = (di: number, dj: number) => setAt(a => (a ? [a[0] + di, a[1] + dj] : a));
 
+  // turning changes the design's shape, so centre it again on the canvas
+  const turn = (by: number) => {
+    const t = (turns + by + 4) % 4;
+    setTurns(t);
+    if (!scan) return;
+    const g = rotateGrid(chart.idx, chart.W, chart.H, t), a = centredAnchor(scan.lattice, g.W, g.H);
+    setAt(a);
+    setLook(holeAt(scan.lattice, a[0] + (g.W >> 1), a[1] + (g.H >> 1)));
+  };
+
   const makePdf = async () => {
     if (!scan || !at) return;
     setMaking(true); setError("");
@@ -170,6 +183,12 @@ export default function PrintToCanvas({ chart, mesh, baseName, onClose }: Props)
             </figure>
           </div>
 
+          <div className="btns" role="group" aria-label="Turn the design">
+            <span className="note">Turn the design:</span>
+            <button className="mini" type="button" aria-label="Turn left" onClick={() => turn(-1)}>↺</button>
+            <button className="mini" type="button" aria-label="Turn right" onClick={() => turn(1)}>↻</button>
+            <span className="note">{turns === 0 ? "upright" : turns === 2 ? "upside down" : turns === 1 ? "on its side (turned right)" : "on its side (turned left)"}</span>
+          </div>
           <div className="btns" role="group" aria-label="Move the design">
             <span className="note">Move the design one stitch:</span>
             <button className="mini" type="button" aria-label="Left" onClick={() => move(-1, 0)}>←</button>

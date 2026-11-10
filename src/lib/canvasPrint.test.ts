@@ -4,7 +4,7 @@ import { gunzipSync, inflateSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import {
   DOT_R_IN, DOTS_IN, DPI, ET2803, applyH, blobs, buildLattice, centredAnchor, checkFit, findDots, findHoles,
-  holeAt, homography, precorrect, rasterize, scanToPage, stitchQuad, type Pt,
+  holeAt, homography, precorrect, rasterize, rotateGrid, scanToPage, stitchQuad, type Pt,
 } from "./canvasPrint";
 import { carrierPdf, printPdf } from "./pdf";
 
@@ -170,6 +170,23 @@ describe("holes and the grid", () => {
     expect(Math.abs((x0 + x1) / 2 - 600)).toBeLessThan(1);
     expect(Math.abs((y0 + y1) / 2 - 600)).toBeLessThan(1);
     expect(stitchQuad(L, ai, aj, 0, 0)[2]).toEqual(holeAt(L, ai + 1, aj + 1));
+  });
+});
+
+describe("turning the design", () => {
+  // 3 wide × 2 tall:  0 1 2
+  //                   3 4 5
+  const g = new Int16Array([0, 1, 2, 3, 4, 5]);
+  it("turns a quarter right, half and a quarter left", () => {
+    expect(rotateGrid(g, 3, 2, 1)).toEqual({ W: 2, H: 3, idx: new Int16Array([3, 0, 4, 1, 5, 2]) });
+    expect(rotateGrid(g, 3, 2, 2)).toEqual({ W: 3, H: 2, idx: new Int16Array([5, 4, 3, 2, 1, 0]) });
+    expect(rotateGrid(g, 3, 2, 3)).toEqual({ W: 2, H: 3, idx: new Int16Array([2, 5, 1, 4, 0, 3]) });
+  });
+  it("four quarter turns bring it back, and no turn leaves it alone", () => {
+    let r = { idx: g, W: 3, H: 2 };
+    for (let i = 0; i < 4; i++) r = rotateGrid(r.idx, r.W, r.H, 1);
+    expect(r).toEqual({ idx: g, W: 3, H: 2 });
+    expect(rotateGrid(g, 3, 2, -1)).toEqual(rotateGrid(g, 3, 2, 3));
   });
 });
 

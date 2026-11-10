@@ -437,3 +437,18 @@ function fillQuad(q: Pt[], X: number, Y: number, w: number, h: number, set: (o: 
     }
   }
 }
+
+/* ---------- turning the design ---------- */
+
+/** The stitch grid turned clockwise by `turns` quarter turns (0–3). Unstitched squares stay -1. */
+export function rotateGrid(idx: Int16Array, W: number, H: number, turns: number): { idx: Int16Array; W: number; H: number } {
+  const t = ((turns % 4) + 4) % 4;
+  if (t === 0) return { idx, W, H };
+  const nW = t % 2 ? H : W, nH = t % 2 ? W : H, out = new Int16Array(W * H);
+  for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) {
+    // where square (c, r) ends up after the turn
+    const [nc, nr] = t === 1 ? [H - 1 - r, c] : t === 2 ? [W - 1 - c, H - 1 - r] : [r, W - 1 - c];
+    out[nr * nW + nc] = idx[r * W + c];
+  }
+  return { idx: out, W: nW, H: nH };
+}
