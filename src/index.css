@@ -171,3 +171,36 @@ html.fullchart,html.fullchart body{overflow:hidden}
 .pc-views figure{margin:0;display:flex;flex-direction:column;gap:6px;flex:1 1 280px;min-width:0}
 .pc-overview{width:100%;max-width:520px;height:auto;border:1px solid var(--line);border-radius:8px;cursor:crosshair;background:#fff}
 .pc-closeup{width:100%;max-width:480px;height:auto;border:1px solid var(--line);border-radius:8px;image-rendering:pixelated;background:#fff}
+
+/* three steps: Design, Stitch, Share & print */
+.steps-nav{display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:10px}
+.steps-nav .step{font:inherit;font-weight:600;display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;border:1px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer}
+.steps-nav .step .n{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--soft);font-size:12px}
+.steps-nav .step[aria-current="page"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.steps-nav .step[aria-current="page"] .n{background:var(--accent-ink);color:var(--accent)}
+.steps-nav .step:disabled{opacity:.45;cursor:default}
+.stage.wide{width:100%}
+.share{max-width:960px}
+.seg{display:inline-flex;gap:6px;flex-wrap:wrap}
+
+/* Studio (local-only) version: always visibly different from the public site */
+.studio-badge{display:inline-block;vertical-align:middle;margin-left:12px;font-family:var(--f-body);font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:4px 10px;border-radius:999px;background:#2f6f8f;color:#fff}
+.studio-tag{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:2px 8px;border-radius:999px;background:#2f6f8f;color:#fff}
+.wrap.studio{border-top:4px solid #2f6f8f;padding-top:12px}
+.studio-btn{display:inline-flex;align-items:center;gap:8px;justify-content:center}
+
+/* Design with Claude */
+.designbox textarea.txt{resize:vertical;min-height:3em}
+.designbox .lbl{font-size:13px;font-weight:600}
+.photos{display:flex;gap:8px;flex-wrap:wrap}
+.photos figure{margin:0;position:relative}
+.photos img{width:84px;height:84px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
+.photos .mini{position:absolute;top:4px;right:4px;padding:0 6px}
+.design-size{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;font-size:14px}
+.design-size label{display:inline-flex;align-items:center;gap:6px}
+.design-size .txt{width:80px;flex:none}
+.design-result{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start}
+.design-preview{max-width:100%;height:auto;border:1px solid var(--line);border-radius:8px;image-rendering:pixelated;background:#fff}
+.design-side{display:flex;flex-direction:column;gap:8px;flex:1 1 260px;min-width:0}
+
+.share > .library{max-width:none}

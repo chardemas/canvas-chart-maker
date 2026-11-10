@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { DEFAULT_SETTINGS, stitchSize, syncedHeight, syncedWidth, type Crop, type Settings } from "./lib/chart";
 import { threadByCode } from "./lib/dmc";
 import type { RGB } from "./lib/color";
@@ -10,7 +10,6 @@ import { deleteChart, getChart, listCharts, metaFor, newId, saveChart, touchChar
 import { startSync, syncLabel, type SyncState } from "./lib/sync";
 import Account from "./components/Account";
 import SendToCustomer from "./components/SendToCustomer";
-import PrintToCanvas from "./components/PrintToCanvas";
 import Library from "./components/Library";
 import { makeBackup, openBackup } from "./lib/backup";
 import { parseStitchly, stitchlyPicture } from "./lib/stitchly";
@@ -25,6 +24,13 @@ import { ERASER, addColour, paintCell, recount, tickCell, undoChanges, type Chan
 import Legend from "./components/Legend";
 import CropPanel from "./components/CropPanel";
 import ExportPanel from "./components/ExportPanel";
+
+// Studio-only extras: in the public build __STUDIO__ is false, so these imports are dropped entirely
+const PrintToCanvas = __STUDIO__ ? lazy(() => import("./components/PrintToCanvas")) : null;
+const DesignWithClaude = __STUDIO__ ? lazy(() => import("./components/DesignWithClaude")) : null;
+
+type Step = "design" | "stitch" | "share";
+const savedStep = (): Step => { try { const v = localStorage.getItem("step"); return v === "stitch" || v === "share" ? v : "design"; } catch { return "design"; } };
 
 const UPLOAD_HINT = "JPG, PNG or WebP, or a Stitchly pattern (.stitchly). Pictures on a plain white background work best.";
 const toForm = (s: Settings): Form => ({ ...s, win: String(s.win), hin: String(s.hin) });
@@ -55,7 +61,9 @@ export default function App() {
   const [zoom, setZoom] = useState(1);
   const [full, setFull] = useState(false);
   const [cropOpen, setCropOpen] = useState(false);
-  const [exported, setExported] = useState<{ url: string; note: string } | null>(null);
+  const [exported, setExported] = useState<{ url: string; note: string; kind: Mode } | null>(null);
+  const [step, setStep] = useState<Step>(savedStep);
+  const [designOpen, setDesignOpen] = useState(false);
   const undo = useRef<Change[][]>([]);
   const [canUndo, setCanUndo] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -76,8 +84,6 @@ export default function App() {
   const [syncState, setSyncState] = useState<SyncState>("signed-out");
   const [syncNote, setSyncNote] = useState("");
   const [showAcct, setShowAcct] = useState(false);
-  const [sendOpen, setSendOpen] = useState(false);
-  const [printOpen, setPrintOpen] = useState(false);
   const [linksReload, bumpLinks] = useReducer((n: number) => n + 1, 0);
   const remoteRef = useRef<(ids: string[]) => void>(() => {});
   useEffect(() => { refreshLibrary(); }, [refreshLibrary]);
@@ -404,28 +410,104 @@ export default function App() {
   const setMode = (m: Mode) => { setModeState(m); if (m === "print") setTool(null); };
   const toggleFocus = (n: number) => { setFocus(f => (f === n ? -1 : n)); if (mode === "print") setMode("symbols"); };
 
-  const makeExport = () => {
+  const makeExport = (m: Mode) => {
     if (!chart) return;
-    const url = renderExport(chart, mode, s.mesh);
-    const note = mode === "print"
+    const url = renderExport(chart, m, s.mesh);
+    const note = m === "print"
       ? `Print at ${(chart.W / s.mesh).toFixed(2)} × ${(chart.H / s.mesh).toFixed(2)} in, actual size.`
       : "It includes the legend with DMC threads and leaves out your ticks.";
-    setExported({ url, note });
+    setExported({ url, note, kind: m });
   };
 
+  const goStep = (st: Step) => {
+    setStep(st); setFull(false); setTool(null);
+    try { localStorage.setItem("step", st); } catch { /* private mode */ }
+  };
+  const onStitch = step === "stitch";
+
   const hint = !chart ? "" : mode === "print"
-    ? `Plain pixel version. Use "Make an image to save", then print it at ${(chart.W / s.mesh).toFixed(2)} × ${(chart.H / s.mesh).toFixed(2)} in (actual size, not "fit to page") so each square matches one stitch.`
+    ? `Plain pixel version, ${(chart.W / s.mesh).toFixed(2)} × ${(chart.H / s.mesh).toFixed(2)} in. Save or print it from Share & print.`
+    : !onStitch ? "Adjust the picture and settings on the left; the chart updates as you go. When it looks right, go to Stitch."
     : tool === "tick" ? "Tap or drag across stitches to tick them off. Tap a ticked stitch to untick it. Use two fingers to zoom and move around."
     : tool === "paint" ? "Choose a colour below, then tap or drag over squares to repaint them. The eraser leaves squares unstitched. Undo puts them back. Use two fingers to zoom and move around; Full screen gives you more room."
     : "Start at the red X in the centre. Turn on ticking to mark stitches as you paint them. Pinch to zoom, drag to move around.";
 
   const baseName = (pic?.name ?? "chart").replace(/\.[^.]+$/, "");
 
+  const openDesigned = (f: File, settings: Settings, note: string) => {
+    setDesignOpen(false);
+    openFile(f, settings, null, note);
+    goStep("design");
+  };
+
+  const chartArea = (
+    <div className={"work" + (full ? " full" : "")}>
+      <div className="bar">
+        {full && <button className="btn primary" type="button" onClick={() => setFull(false)}>Done</button>}
+        <div className="seg" role="group" aria-label="Chart style">
+          {(["symbols", "colour", "print"] as Mode[]).map(m => (
+            <button key={m} className="btn" type="button" aria-pressed={mode === m} onClick={() => setMode(m)}>
+              {m === "symbols" ? "Symbols" : m === "colour" ? "Colour" : "Print version"}
+            </button>
+          ))}
+        </div>
+        <span className="spacer" />
+        <div className="zoom" role="group" aria-label="Zoom">
+          <button className="mini" type="button" aria-label="Zoom out" disabled={!chart} onClick={() => zoomBy(1 / 1.5)}>−</button>
+          <input type="range" aria-label="Zoom" min={Math.log2(ZOOM_MIN)} max={Math.log2(ZOOM_MAX)} step={0.05} value={Math.log2(zoom)} onChange={e => setZoom(2 ** +e.target.value)} />
+          <button className="mini" type="button" aria-label="Zoom in" disabled={!chart} onClick={() => zoomBy(1.5)}>+</button>
+          <button className="mini" type="button" disabled={!chart} onClick={() => setZoom(1)}>Fit</button>
+        </div>
+        {!full && <button className="btn" type="button" disabled={!chart} onClick={() => setFull(true)}>Full screen</button>}
+      </div>
+      {onStitch && (
+        <div className="bar">
+          <button className="btn" type="button" aria-pressed={tool === "tick"} disabled={mode === "print"} onClick={() => pickTool("tick")}>
+            {tool === "tick" ? "Ticking on" : "Tick off stitches"}
+          </button>
+          <button className="btn" type="button" aria-pressed={tool === "paint"} disabled={mode === "print" || !chart} onClick={() => pickTool("paint")}>
+            {tool === "paint" ? "Fixing on" : "Fix stitches"}
+          </button>
+          <button className="btn" type="button" disabled={!canUndo} onClick={doUndo}>Undo</button>
+          <div className="progress">
+            <div className="meter"><span style={{ width: pct + "%" }} /></div>
+            <span>{pct}% done<span className="ofn"> · {doneCount.toLocaleString()} of {total.toLocaleString()} stitches</span></span>
+          </div>
+        </div>
+      )}
+      {!full && <p className="note">{hint}</p>}
+      {onStitch && tool === "paint" && chart && <BrushBar pal={chart.pal} brush={brush} onBrush={setBrush} onAdd={newColour} size={brushSize} onSize={setBrushSize} />}
+      {full && tool !== "paint" && chart && mode !== "print" && <ColourBar pal={chart.pal} focus={focus} onFocus={toggleFocus} />}
+      {chart ? (
+        <ChartView
+          chart={chart} rev={rev} mode={mode} focus={focus} tool={onStitch ? tool : null} zoom={zoom} busy={busy || !source}
+          onZoom={setZoom}
+          brushSize={tool === "paint" ? brushSize : 1}
+          onStrokeStart={strokeStart}
+          onCell={strokeCell}
+          onStrokeEnd={strokeEnd}
+          onStrokeCancel={strokeCancel}
+        />
+      ) : <div className="viewer busy"><p className="note">{cutStatus || "Making your chart…"}</p></div>}
+    </div>
+  );
+
+  const legend = chart && (
+    <Legend
+      chart={chart}
+      focus={focus}
+      onFocus={toggleFocus}
+      onEdit={() => { bump(); saveProgress(); }}
+      onMark={markColour}
+      onClearAll={clearAll}
+    />
+  );
+
   return (
-    <div className="wrap">
+    <div className={"wrap" + (__STUDIO__ ? " studio" : "")}>
       <header className="top">
         <div>
-          <h1>Canvas <em>Chart</em> Maker</h1>
+          <h1>Canvas <em>Chart</em> Maker{__STUDIO__ && <span className="studio-badge" title="Runs only on this computer (npm run studio). The public site doesn't have these extras.">Studio · this computer only</span>}</h1>
           <p className="sub">Turn a picture into a needlepoint chart sized in inches, with stitch symbols, DMC thread matches, a marked centre, a print version and a checklist you tick off as you paint.</p>
         </div>
         <div className="btns topbtns">
@@ -463,125 +545,103 @@ export default function App() {
 
       <input ref={fileInput} type="file" accept="image/*,.stitchly" hidden onChange={e => { openFile(e.target.files?.[0]); e.target.value = ""; }} />
 
-      <div className="grid">
-        <aside className="rail" aria-label="Chart settings">
-          <PicturePanel
-            picture={pic && (s.cutout && cut?.pic === pic ? { ...pic, url: cut.url, cutout: true } : pic)}
-            message={uploadMsg}
-            note={picNote}
-            onPick={() => fileInput.current?.click()}
-            onFile={f => openFile(f)}
-            onCrop={() => setCropOpen(true)}
-            savedName={library.find(m => m.id === currentId)?.name ?? null}
-            canSave={!!chart}
-            onSave={() => saveToLibrary(false)}
-            onSaveCopy={() => saveToLibrary(true)}
+      {pic && (
+        <nav className="steps-nav" aria-label="Steps">
+          {([["design", "1", "Design"], ["stitch", "2", "Stitch"], ["share", "3", "Share & print"]] as [Step, string, string][]).map(([id, n, label]) => (
+            <button key={id} type="button" className="step" aria-current={step === id ? "page" : undefined} disabled={id !== "design" && !chart} onClick={() => goStep(id)}>
+              <span className="n">{n}</span>{label}
+            </button>
+          ))}
+        </nav>
+      )}
+
+      {DesignWithClaude && designOpen && (
+        <Suspense fallback={<p className="note">Loading…</p>}>
+          <DesignWithClaude mesh={s.mesh} onUse={openDesigned} onClose={() => setDesignOpen(false)} />
+        </Suspense>
+      )}
+
+      {(!pic || step === "design") && (
+        <div className="grid">
+          <aside className="rail" aria-label="Chart settings">
+            <PicturePanel
+              picture={pic && (s.cutout && cut?.pic === pic ? { ...pic, url: cut.url, cutout: true } : pic)}
+              message={uploadMsg}
+              note={picNote}
+              onPick={() => fileInput.current?.click()}
+              onFile={f => openFile(f)}
+              onCrop={() => setCropOpen(true)}
+              savedName={library.find(m => m.id === currentId)?.name ?? null}
+              canSave={!!chart}
+              onSave={() => saveToLibrary(false)}
+              onSaveCopy={() => saveToLibrary(true)}
+            />
+            {__STUDIO__ && !designOpen && (
+              <button className="btn studio-btn" type="button" onClick={() => setDesignOpen(true)}>Design with Claude <span className="studio-tag">Studio</span></button>
+            )}
+            {pic && <SettingsPanel form={form} update={update} size={size} chart={chart} cutStatus={cutStatus} />}
+          </aside>
+
+          <section className="stage">
+            {!pic ? <EmptyState /> : (
+              <>
+                {cropOpen && (
+                  <CropPanel
+                    img={pic.img}
+                    crop={form.crop}
+                    onApply={(c: Crop) => { setCropOpen(false); setForm(f => ({ ...f, crop: c })); }}
+                    onCancel={() => setCropOpen(false)}
+                  />
+                )}
+                {chartArea}
+                {legend}
+              </>
+            )}
+          </section>
+        </div>
+      )}
+
+      {pic && step === "stitch" && (
+        <section className="stage wide">
+          {chartArea}
+          {legend}
+        </section>
+      )}
+
+      {pic && step === "share" && chart && (
+        <section className="stage wide share">
+          <div className="library">
+            <div className="bar"><h2>Image to save</h2></div>
+            <p className="note">A picture of the chart to print, keep or send. Chart images include the DMC thread list; the print version is the plain pixel picture to print at {(chart.W / s.mesh).toFixed(2)} × {(chart.H / s.mesh).toFixed(2)} in, actual size.</p>
+            <div className="btns">
+              <button className="btn" type="button" onClick={() => makeExport("symbols")}>Symbol chart</button>
+              <button className="btn" type="button" onClick={() => makeExport("colour")}>Colour chart</button>
+              <button className="btn" type="button" onClick={() => makeExport("print")}>Print version</button>
+            </div>
+          </div>
+          {exported && (
+            <ExportPanel
+              url={exported.url}
+              note={exported.note}
+              fileName={`${baseName}-${exported.kind === "print" ? "print" : exported.kind === "colour" ? "colour-chart" : "chart"}.png`}
+              onClose={() => setExported(null)}
+            />
+          )}
+          <SendToCustomer
+            chart={chart}
+            mesh={s.mesh}
+            defaultTitle={library.find(m => m.id === currentId)?.name ?? baseName}
+            signedIn={!!email}
+            onSignIn={() => { setShowAcct(true); setShowLib(false); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+            onCreated={bumpLinks}
           />
-          {pic && <SettingsPanel form={form} update={update} size={size} chart={chart} cutStatus={cutStatus} />}
-        </aside>
-
-        <section className="stage">
-          {!pic ? <EmptyState /> : (
-            <>
-              <div className="bar" role="group" aria-label="Chart style">
-                {(["symbols", "colour", "print"] as Mode[]).map(m => (
-                  <button key={m} className="btn" type="button" aria-pressed={mode === m} onClick={() => setMode(m)}>
-                    {m === "symbols" ? "Symbol chart" : m === "colour" ? "Colour chart" : "Print version"}
-                  </button>
-                ))}
-              </div>
-
-              {cropOpen && (
-                <CropPanel
-                  img={pic.img}
-                  crop={form.crop}
-                  onApply={(c: Crop) => { setCropOpen(false); setForm(f => ({ ...f, crop: c })); }}
-                  onCancel={() => setCropOpen(false)}
-                />
-              )}
-
-              <div className={"work" + (full ? " full" : "")}>
-              <div className="bar">
-                {full && <button className="btn primary" type="button" onClick={() => setFull(false)}>Done</button>}
-                <button className="btn" type="button" aria-pressed={tool === "tick"} disabled={mode === "print"} onClick={() => pickTool("tick")}>
-                  {tool === "tick" ? "Ticking on" : "Tick off stitches"}
-                </button>
-                <button className="btn" type="button" aria-pressed={tool === "paint"} disabled={mode === "print" || !chart} onClick={() => pickTool("paint")}>
-                  {tool === "paint" ? "Fixing on" : "Fix stitches"}
-                </button>
-                <button className="btn" type="button" disabled={!canUndo} onClick={doUndo}>Undo</button>
-                <div className="progress">
-                  <div className="meter"><span style={{ width: pct + "%" }} /></div>
-                  <span>{pct}% done<span className="ofn"> · {doneCount.toLocaleString()} of {total.toLocaleString()} stitches</span></span>
-                </div>
-                <span className="spacer" />
-                <div className="zoom" role="group" aria-label="Zoom">
-                  <button className="mini" type="button" aria-label="Zoom out" disabled={!chart} onClick={() => zoomBy(1 / 1.5)}>−</button>
-                  <input type="range" aria-label="Zoom" min={Math.log2(ZOOM_MIN)} max={Math.log2(ZOOM_MAX)} step={0.05} value={Math.log2(zoom)} onChange={e => setZoom(2 ** +e.target.value)} />
-                  <button className="mini" type="button" aria-label="Zoom in" disabled={!chart} onClick={() => zoomBy(1.5)}>+</button>
-                  <button className="mini" type="button" disabled={!chart} onClick={() => setZoom(1)}>Fit</button>
-                </div>
-                {!full && <>
-                  <button className="btn" type="button" disabled={!chart} onClick={() => setFull(true)}>Full screen</button>
-                  <button className="btn" type="button" disabled={!chart} onClick={makeExport}>Make an image to save</button>
-                  <button className="btn" type="button" disabled={!chart} aria-pressed={sendOpen} onClick={() => setSendOpen(v => !v)}>Send to customer</button>
-                  <button className="btn" type="button" disabled={!chart} aria-pressed={printOpen} onClick={() => setPrintOpen(v => !v)}>Print on canvas</button>
-                </>}
-              </div>
-              {!full && <p className="note">{hint}</p>}
-              {sendOpen && !full && chart && (
-                <SendToCustomer
-                  chart={chart}
-                  mesh={s.mesh}
-                  defaultTitle={library.find(m => m.id === currentId)?.name ?? baseName}
-                  signedIn={!!email}
-                  onSignIn={() => { setShowAcct(true); setShowLib(false); window.scrollTo({ top: 0, behavior: "smooth" }); }}
-                  onClose={() => setSendOpen(false)}
-                  onCreated={bumpLinks}
-                />
-              )}
-              {printOpen && !full && chart && (
-                <PrintToCanvas chart={chart} mesh={s.mesh} baseName={baseName} onClose={() => setPrintOpen(false)} />
-              )}
-              {tool === "paint" && chart && <BrushBar pal={chart.pal} brush={brush} onBrush={setBrush} onAdd={newColour} size={brushSize} onSize={setBrushSize} />}
-              {full && tool !== "paint" && chart && mode !== "print" && <ColourBar pal={chart.pal} focus={focus} onFocus={toggleFocus} />}
-
-              {chart ? (
-                <ChartView
-                  chart={chart} rev={rev} mode={mode} focus={focus} tool={tool} zoom={zoom} busy={busy || !source}
-                  onZoom={setZoom}
-                  brushSize={tool === "paint" ? brushSize : 1}
-                  onStrokeStart={strokeStart}
-                  onCell={strokeCell}
-                  onStrokeEnd={strokeEnd}
-                  onStrokeCancel={strokeCancel}
-                />
-              ) : <div className="viewer busy"><p className="note">{cutStatus || "Making your chart…"}</p></div>}
-              </div>
-
-              {exported && (
-                <ExportPanel
-                  url={exported.url}
-                  note={exported.note}
-                  fileName={`${baseName}-${mode === "print" ? "print" : "chart"}.png`}
-                  onClose={() => setExported(null)}
-                />
-              )}
-
-              {chart && (
-                <Legend
-                  chart={chart}
-                  focus={focus}
-                  onFocus={toggleFocus}
-                  onEdit={() => { bump(); saveProgress(); }}
-                  onMark={markColour}
-                  onClearAll={clearAll}
-                />
-              )}
-            </>
+          {PrintToCanvas && (
+            <Suspense fallback={<p className="note">Loading…</p>}>
+              <PrintToCanvas chart={chart} mesh={s.mesh} baseName={baseName} />
+            </Suspense>
           )}
         </section>
-      </div>
+      )}
     </div>
   );
 }

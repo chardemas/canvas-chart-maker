@@ -9,7 +9,7 @@ interface Props {
   defaultTitle: string;
   signedIn: boolean;
   onSignIn: () => void;
-  onClose: () => void;
+  onClose?: () => void;
   onCreated: () => void;
 }
 
@@ -33,7 +33,7 @@ export default function SendToCustomer({ chart, mesh, defaultTitle, signedIn, on
 
   return (
     <section className="library sendbox" aria-label="Send to a customer">
-      <div className="bar"><h2>Send to a customer</h2><span className="spacer" /><button className="btn" type="button" onClick={onClose}>Close</button></div>
+      <div className="bar"><h2>Send to a customer</h2><span className="spacer" />{onClose && <button className="btn" type="button" onClick={onClose}>Close</button>}</div>
       {!signedIn ? (
         <>
           <p className="note">Sign in first, so the links are yours and you can switch them off later.</p>

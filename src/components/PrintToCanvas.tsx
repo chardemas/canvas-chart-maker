@@ -8,7 +8,7 @@ interface Props {
   chart: Chart;
   mesh: number;
   baseName: string;
-  onClose: () => void;
+  onClose?: () => void;
 }
 
 const CLOSE = 240; // close-up size in scan px (0.4 in)
@@ -131,7 +131,7 @@ export default function PrintToCanvas({ chart, mesh, baseName, onClose }: Props)
 
   return (
     <section className="library printcanvas" aria-label="Print on canvas">
-      <div className="bar"><h2>Print on canvas</h2><span className="spacer" /><button className="btn" type="button" onClick={onClose}>Close</button></div>
+      <div className="bar"><h2>Print on canvas</h2><span className="studio-tag">Studio</span><span className="spacer" />{onClose && <button className="btn" type="button" onClick={onClose}>Close</button>}</div>
       <p className="note">Lines each stitch up with its own thread crossing on your actual piece of canvas, even when the canvas isn't quite square or isn't exactly {mesh} to the inch.</p>
 
       <ol className="steps">
