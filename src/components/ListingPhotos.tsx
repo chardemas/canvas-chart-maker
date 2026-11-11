@@ -5,6 +5,7 @@ import type { Look } from "../lib/listingPhoto";
 import type { ListingReply, ListingRequest } from "../worker/listingPhoto.worker";
 import { backingPdf } from "../lib/pdf";
 import { zip } from "../lib/zip";
+import ListingText from "./ListingText";
 
 /**
  * Studio only: consistent Etsy listing photos from a scan of the printed canvas lying loose on the dark
@@ -226,6 +227,7 @@ export default function ListingPhotos({ chart, mesh, baseName }: Props) {
         <button className="btn primary" type="button" onClick={() => void downloadAll()}>Download all (.zip)</button>
         <span className="note">Keep colours honest: buyers compare the canvas to the photo.</span>
       </div>
+      <ListingText name={title.trim() || baseName} W={chart.W} H={chart.H} mesh={mesh} />
     </section>
   );
 }
