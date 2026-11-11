@@ -220,3 +220,4 @@ html.fullchart,html.fullchart body{overflow:hidden}
 .lt-out .bar .btn{margin-left:auto}
 .lt-out p,.lt-out pre{margin:6px 0 0;white-space:pre-wrap;font:inherit;overflow-wrap:anywhere}
 .listingtext .design-size label{flex:1 1 220px;display:flex;align-items:center;gap:6px}
+.listingtext .design-size label .txt{width:auto;max-width:none;flex:1}
