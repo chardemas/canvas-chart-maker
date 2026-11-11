@@ -79,3 +79,15 @@ export async function carrierPdf(): Promise<Blob> {
     stream("", content),
   ]);
 }
+
+/** A dark grey sheet to lay a loose canvas on for listing-photo scans (prints once, reuse it). */
+export async function backingPdf(): Promise<Blob> {
+  const m = 0.25 * PT; // most printers can't print the very edge
+  const content = enc.encode(`0.22 g ${n(m)} ${n(m)} ${n(PAGE_W_PT - 2 * m)} ${n(PAGE_H_PT - 2 * m)} re f\n`);
+  return assemble([
+    ["<< /Type /Catalog /Pages 2 0 R >>"],
+    ["<< /Type /Pages /Kids [3 0 R] /Count 1 >>"],
+    [`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W_PT} ${PAGE_H_PT}] /Contents 4 0 R >>`],
+    stream("", content),
+  ]);
+}

@@ -225,3 +225,27 @@ describe("drawing and PDFs", () => {
     expect(text).toContain("41.76 756 m"); // top-left dot: centre 36 pt in, radius 5.76 pt
   });
 });
+
+describe("zip and backing sheet", async () => {
+  const { zip, crc32 } = await import("./zip");
+  const { backingPdf } = await import("./pdf");
+  it("crc32 matches the standard check value", () => {
+    expect(crc32(new TextEncoder().encode("123456789"))).toBe(0xcbf43926);
+  });
+  it("zips files that unzip back to the same bytes", async () => {
+    const { execFileSync } = await import("node:child_process");
+    const { mkdtempSync, writeFileSync, readFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const dir = mkdtempSync(tmpdir() + "/ziptest-");
+    const a = new Uint8Array([1, 2, 3, 250]), b = new TextEncoder().encode("hello");
+    writeFileSync(dir + "/t.zip", new Uint8Array(await zip([{ name: "a.bin", data: a }, { name: "b.txt", data: b }]).arrayBuffer()));
+    execFileSync("unzip", ["-q", "t.zip"], { cwd: dir });
+    expect(Array.from(readFileSync(dir + "/a.bin"))).toEqual([1, 2, 3, 250]);
+    expect(readFileSync(dir + "/b.txt", "utf8")).toBe("hello");
+  });
+  it("makes a letter-size dark backing page", async () => {
+    const t = await (await backingPdf()).text();
+    expect(t).toContain("/MediaBox [0 0 612 792]");
+    expect(t).toContain("0.22 g 18 18 576 756 re f");
+  });
+});

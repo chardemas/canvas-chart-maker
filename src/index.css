@@ -204,3 +204,10 @@ html.fullchart,html.fullchart body{overflow:hidden}
 .design-side{display:flex;flex-direction:column;gap:8px;flex:1 1 260px;min-width:0}
 
 .share > .library{max-width:none}
+
+/* listing photos */
+.swatchbtn{font:inherit;font-size:13px;display:inline-flex;align-items:center;gap:6px;padding:4px 10px 4px 4px;border-radius:999px;border:1px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer}
+.swatchbtn span{width:22px;height:22px;border-radius:50%;border:1px solid rgba(0,0,0,.15)}
+.swatchbtn[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent) inset}
+.listingbox .pc-views figure{flex:1 1 240px}
+.listingbox input[type=color]{width:36px;height:28px;border:0;background:none;padding:0}

@@ -28,6 +28,7 @@ import ExportPanel from "./components/ExportPanel";
 // Studio-only extras: in the public build __STUDIO__ is false, so these imports are dropped entirely
 const PrintToCanvas = __STUDIO__ ? lazy(() => import("./components/PrintToCanvas")) : null;
 const DesignWithClaude = __STUDIO__ ? lazy(() => import("./components/DesignWithClaude")) : null;
+const ListingPhotos = __STUDIO__ ? lazy(() => import("./components/ListingPhotos")) : null;
 
 type Step = "design" | "stitch" | "share";
 const savedStep = (): Step => { try { const v = localStorage.getItem("step"); return v === "stitch" || v === "share" ? v : "design"; } catch { return "design"; } };
@@ -701,6 +702,11 @@ export default function App() {
           {PrintToCanvas && (
             <Suspense fallback={<p className="note">Loading…</p>}>
               <PrintToCanvas chart={chart} mesh={s.mesh} baseName={baseName} />
+            </Suspense>
+          )}
+          {ListingPhotos && (
+            <Suspense fallback={<p className="note">Loading…</p>}>
+              <ListingPhotos chart={chart} mesh={s.mesh} baseName={baseName} />
             </Suspense>
           )}
         </section>
