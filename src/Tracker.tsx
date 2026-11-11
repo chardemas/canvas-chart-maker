@@ -3,6 +3,7 @@
  * Ticks save on this device straight away and with the link online, so any device that opens the
  * link shows the same progress. Without internet it keeps working and uploads later.
  */
+import { threadLabel } from "./lib/dmc";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import ChartView, { ZOOM_MAX, ZOOM_MIN, type Tool } from "./components/ChartView";
 import ColourBar from "./components/ColourBar";
@@ -253,11 +254,11 @@ export default function Tracker({ id }: { id: string }) {
               const ppct = p.count ? (p.done / p.count) * 100 : 0;
               return (
                 <div key={n} className={"lrow" + (focus === n ? " on" : "")} tabIndex={0} role="button" aria-pressed={focus === n}
-                  aria-label={`Highlight DMC ${p.thread.code}`} onClick={() => toggleFocus(n)}
+                  aria-label={`Highlight ${threadLabel(p.thread)}`} onClick={() => toggleFocus(n)}
                   onKeyDown={e => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); toggleFocus(n); } }}>
                   <span className="sw" style={{ background: hex(p.rgb), color: inkFor(p.rgb) }}>{p.sym}</span>
                   <div className="linfo">
-                    <div className="lhead"><b>DMC {p.thread.code}</b><span className="mono">{p.count.toLocaleString()} st</span></div>
+                    <div className="lhead"><b>{threadLabel(p.thread)}</b><span className="mono">{p.count.toLocaleString()} st</span></div>
                     <div className="note">{p.thread.name}</div>
                     <div className="lbar"><span style={{ width: ppct + "%" }} /></div>
                     <div className="lfoot">

@@ -117,7 +117,7 @@ export interface StitchlyPicture {
 }
 
 /** The pattern as an exact picture plus the settings that open it unchanged: no colour picking, Stitchly's symbols. */
-export function stitchlyPicture(p: StitchlyPattern): StitchlyPicture {
+export function stitchlyPicture(p: StitchlyPattern, colours: Record<string, [number, number, number]> = {}): StitchlyPicture {
   const rgba = new Uint8ClampedArray(p.W * p.H * 4);
   const threads: ExactThread[] = [], byCode = new Map<string, ExactThread>(), usedRgb = new Set<string>(), approx = new Set<string>();
   const usedSym = new Set<string>();
@@ -125,17 +125,18 @@ export function stitchlyPicture(p: StitchlyPattern): StitchlyPicture {
     if (!code) return;
     const t = threadForCode(code);
     const key = t.thread?.code ?? (t.dmc || code);
+    const own = colours[key]; // a colour taken from the pattern's exported image
     let e = byCode.get(key);
     if (!e) {
-      const rgb: [number, number, number] = [...(t.thread?.rgb ?? t.rgb ?? [128, 128, 128])] as [number, number, number];
-      if (!t.thread) approx.add(key);
+      const rgb: [number, number, number] = [...(t.thread?.rgb ?? own ?? t.rgb ?? [128, 128, 128])] as [number, number, number];
+      if (!t.thread && !own) approx.add(key);
       // every thread needs its own pixel colour; nudge an approximate colour that clashes
       while (usedRgb.has(rgb.join(","))) rgb[2] = rgb[2] < 255 ? rgb[2] + 1 : rgb[2] - 1;
       usedRgb.add(rgb.join(","));
       const want = p.symbols[code];
       const sym = want && !usedSym.has(want) ? want : SYMS.find(x => !usedSym.has(x)) ?? "?";
       usedSym.add(sym);
-      e = { code: key, name: t.thread?.name ?? t.name ?? `Thread ${key}`, rgb, sym };
+      e = { code: key, name: t.thread?.name ?? t.name ?? (own ? "Stitchly colour" : `Thread ${key}`), rgb, sym };
       byCode.set(key, e); threads.push(e);
     }
     rgba.set([e.rgb[0], e.rgb[1], e.rgb[2], 255], i * 4);
@@ -150,4 +151,77 @@ export function stitchlyPicture(p: StitchlyPattern): StitchlyPicture {
       exact: threads,
     },
   };
+}
+
+/** Codes the app has no colour for: not DMC, and not one of the known variegated threads. */
+export function unknownCodes(p: StitchlyPattern): string[] {
+  const out = new Set<string>();
+  for (const code of p.codes) {
+    if (!code) continue;
+    const t = threadForCode(code);
+    if (!t.thread && !t.rgb) out.add(t.dmc || code);
+  }
+  return [...out];
+}
+
+/**
+ * Each code's colour, read from an image of the pattern exported from Stitchly. The image is lined up
+ * with the stitch grid by the pattern's outline: either the stitched squares fill the picture, or the
+ * whole grid does (when the export shows the empty background too); whichever fits the colours better.
+ */
+export function coloursFromImage(px: ArrayLike<number>, iw: number, ih: number, p: StitchlyPattern): { colours: Record<string, [number, number, number]>; fit: number } {
+  const keyOf = (code: string) => { const t = threadForCode(code); return t.thread?.code ?? (t.dmc || code); };
+  // background: the most common corner colour
+  const at = (x: number, y: number) => { const i = (y * iw + x) * 4; return [px[i], px[i + 1], px[i + 2]]; };
+  const corners = [at(2, 2), at(iw - 3, 2), at(2, ih - 3), at(iw - 3, ih - 3)];
+  const bg = corners.map(c => c.join(",")).sort().reduce((best, c, _i, all) => (all.filter(x => x === c).length > all.filter(x => x === best).length ? c : best)).split(",").map(Number);
+  const differs = (x: number, y: number) => { const [r, g, b] = at(x, y); return Math.abs(r - bg[0]) + Math.abs(g - bg[1]) + Math.abs(b - bg[2]) > 40; };
+  // the drawn area: rows and columns with more than a sliver of non-background
+  const colHits = new Int32Array(iw), rowHits = new Int32Array(ih);
+  for (let y = 0; y < ih; y++) for (let x = 0; x < iw; x++) if (differs(x, y)) { colHits[x]++; rowHits[y]++; }
+  const span = (hits: Int32Array, len: number, other: number) => {
+    const min = Math.max(1, other * 0.003);
+    let a = 0, b = len - 1;
+    while (a < len && hits[a] < min) a++;
+    while (b > a && hits[b] < min) b--;
+    return [a, b + 1];
+  };
+  const [ix0, ix1] = span(colHits, iw, ih), [iy0, iy1] = span(rowHits, ih, iw);
+  if (ix1 - ix0 < 4 || iy1 - iy0 < 4) throw new Error("That image looks empty. Export the pattern from Stitchly as an image and try again.");
+
+  // the stitched squares' outline in grid squares
+  let c0 = p.W, c1 = -1, r0 = p.H, r1 = -1;
+  p.codes.forEach((code, i) => { if (!code) return; const c = i % p.W, r = Math.floor(i / p.W); c0 = Math.min(c0, c); c1 = Math.max(c1, c); r0 = Math.min(r0, r); r1 = Math.max(r1, r); });
+
+  const tryFit = (g0: number, g1: number, h0: number, h1: number) => {
+    const sx = (ix1 - ix0) / (g1 - g0 + 1), sy = (iy1 - iy0) / (h1 - h0 + 1);
+    const samples = new Map<string, number[][]>();
+    p.codes.forEach((code, i) => {
+      if (!code) return;
+      const c = i % p.W, r = Math.floor(i / p.W);
+      const cx = ix0 + (c - g0 + 0.5) * sx, cy = iy0 + (r - h0 + 0.5) * sy, hw = Math.max(0, Math.floor(sx * 0.2)), hh = Math.max(0, Math.floor(sy * 0.2));
+      const rs: number[] = [], gs: number[] = [], bs: number[] = [];
+      for (let y = Math.round(cy) - hh; y <= Math.round(cy) + hh; y++) for (let x = Math.round(cx) - hw; x <= Math.round(cx) + hw; x++) {
+        if (x < 0 || y < 0 || x >= iw || y >= ih) continue;
+        const [rr, gg, bb] = at(x, y); rs.push(rr); gs.push(gg); bs.push(bb);
+      }
+      if (!rs.length) return;
+      const med = (v: number[]) => v.sort((a, b) => a - b)[v.length >> 1];
+      const k = keyOf(code), list = samples.get(k) ?? [];
+      list.push([med(rs), med(gs), med(bs)]); samples.set(k, list);
+    });
+    const colours: Record<string, [number, number, number]> = {};
+    let agree = 0, total = 0;
+    for (const [k, list] of samples) {
+      const med = (j: number) => list.map(v => v[j]).sort((a, b) => a - b)[list.length >> 1];
+      const c: [number, number, number] = [med(0), med(1), med(2)];
+      colours[k] = c;
+      for (const v of list) { total++; if (Math.abs(v[0] - c[0]) + Math.abs(v[1] - c[1]) + Math.abs(v[2] - c[2]) < 45) agree++; }
+    }
+    return { colours, fit: total ? agree / total : 0, square: Math.abs(sx / sy - 1) };
+  };
+  const a = tryFit(c0, c1, r0, r1), b = tryFit(0, p.W - 1, 0, p.H - 1);
+  const best = (a.square < 0.2 ? a.fit : 0) >= (b.square < 0.2 ? b.fit : 0) ? a : b;
+  if (best.fit < 0.85) throw new Error("That image doesn't line up with this pattern. Export just the pattern from Stitchly as an image (no page, title or colour list around it).");
+  return { colours: best.colours, fit: best.fit };
 }

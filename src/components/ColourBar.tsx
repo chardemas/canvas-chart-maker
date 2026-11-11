@@ -1,3 +1,4 @@
+import { threadLabel } from "../lib/dmc";
 import { hex, inkFor } from "../lib/color";
 import type { PaletteEntry } from "../lib/chart";
 
@@ -18,15 +19,15 @@ export default function ColourBar({ pal, focus, onFocus }: Props) {
           type="button"
           className="brush"
           aria-pressed={focus === n}
-          aria-label={`Highlight colour ${n + 1}, DMC ${p.thread.code}`}
-          title={`${n + 1}. DMC ${p.thread.code} ${p.thread.name} · ${p.done} of ${p.count} done`}
+          aria-label={`Highlight colour ${n + 1}, ${threadLabel(p.thread)}`}
+          title={`${n + 1}. ${threadLabel(p.thread)} ${p.thread.name} · ${p.done} of ${p.count} done`}
           style={{ background: hex(p.rgb), color: inkFor(p.rgb) }}
           onClick={() => onFocus(n)}
         >{p.sym}</button>
       ))}
       {focus >= 0 && pal[focus] && (
         <span className="note">
-          DMC {pal[focus].thread.code} {pal[focus].thread.name} · {pal[focus].done.toLocaleString()} of {pal[focus].count.toLocaleString()} done
+          {threadLabel(pal[focus].thread)} {pal[focus].thread.name} · {pal[focus].done.toLocaleString()} of {pal[focus].count.toLocaleString()} done
         </span>
       )}
     </div>

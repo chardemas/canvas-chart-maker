@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseBplist, parseStitchly, stitchlyPicture, threadForCode } from "./stitchly";
+import { coloursFromImage, parseBplist, parseStitchly, stitchlyPicture, threadForCode, unknownCodes } from "./stitchly";
 import { exactChart } from "./chart";
 
 /* A tiny binary property list writer, just enough to make Stitchly-shaped test files. */
@@ -85,5 +85,61 @@ describe("Stitchly files", () => {
 
   it("says so for files that aren't Stitchly patterns", () => {
     expect(() => parseStitchly("<plist></plist>")).toThrow(/Stitchly/);
+  });
+});
+
+describe("colours for other thread brands, from an exported image", () => {
+  // 6 × 4 pattern; the empty column 0 and row 3 make the stitched outline smaller than the grid
+  const codes = [
+    "", "CC87", "CC87", "CC168", "CC168", "D310",
+    "", "CC87", "CC10", "CC168", "CC168", "D310",
+    "", "CC10", "CC10", "CC10", "CC87", "D310",
+    "", "", "", "", "", "",
+  ];
+  const pattern = { name: "angel", W: 6, H: 4, mesh: 18, codes, symbols: {} };
+  const want: Record<string, [number, number, number]> = { CC87: [230, 120, 160], CC168: [90, 60, 140], CC10: [250, 210, 120], "310": [0, 0, 0] };
+  const key = (c: string) => (c === "D310" ? "310" : c);
+
+  /** draws the pattern as an export would: `cell` px squares, margin, optional whole grid with lines */
+  function exportImage(cell: number, margin: number, wholeGrid: boolean) {
+    const g0 = wholeGrid ? 0 : 1, g1 = 5, h0 = 0, h1 = wholeGrid ? 3 : 2;
+    const iw = (g1 - g0 + 1) * cell + 2 * margin, ih = (h1 - h0 + 1) * cell + 2 * margin;
+    const px = new Uint8ClampedArray(iw * ih * 4).fill(255);
+    const put = (x: number, y: number, c: number[]) => { const i = (y * iw + x) * 4; px[i] = c[0]; px[i + 1] = c[1]; px[i + 2] = c[2]; };
+    for (let r = h0; r <= h1; r++) for (let c = g0; c <= g1; c++) {
+      const code = codes[r * 6 + c];
+      for (let y = 0; y < cell; y++) for (let x = 0; x < cell; x++) {
+        const X = margin + (c - g0) * cell + x, Y = margin + (r - h0) * cell + y;
+        if (wholeGrid && (x === 0 || y === 0)) put(X, Y, [180, 180, 180]); // grid lines
+        else if (code) put(X, Y, x === (cell >> 1) && y === (cell >> 1) ? [255, 255, 255] : want[key(code)]); // a speck, like a symbol
+      }
+    }
+    return { px, iw, ih };
+  }
+
+  it("finds which codes have no colour", () => {
+    expect(unknownCodes(pattern).sort()).toEqual(["CC10", "CC168", "CC87"]);
+  });
+  it("reads each code's colour when the stitched squares fill the image", () => {
+    const { px, iw, ih } = exportImage(12, 20, false);
+    const { colours, fit } = coloursFromImage(px, iw, ih, pattern);
+    for (const k of ["CC87", "CC168", "CC10"]) expect(colours[k]).toEqual(want[k]);
+    expect(fit).toBeGreaterThan(0.95);
+  });
+  it("also when the export shows the whole grid, empty squares included", () => {
+    const { px, iw, ih } = exportImage(14, 10, true);
+    const { colours } = coloursFromImage(px, iw, ih, pattern);
+    for (const k of ["CC87", "CC168", "CC10"]) expect(colours[k]).toEqual(want[k]);
+  });
+  it("those colours open the pattern exactly, with the brand's own codes", () => {
+    const pic = stitchlyPicture(pattern, { CC87: want.CC87, CC168: want.CC168, CC10: want.CC10 });
+    expect(pic.approx).toEqual([]);
+    expect(pic.settings.exact?.find(t => t.code === "CC168")).toMatchObject({ rgb: [90, 60, 140], name: "Stitchly colour" });
+  });
+  it("says so when the image doesn't match the pattern", () => {
+    // a different design: diagonal stripes of three strong colours, so each code's squares disagree
+    const px = new Uint8ClampedArray(100 * 100 * 4).fill(255), bands = [[200, 30, 30], [30, 160, 40], [40, 60, 210]];
+    for (let y = 10; y < 90; y++) for (let x = 10; x < 90; x++) { const c = bands[Math.floor((x + y) / 7) % 3], i = (y * 100 + x) * 4; px[i] = c[0]; px[i + 1] = c[1]; px[i + 2] = c[2]; }
+    expect(() => coloursFromImage(px, 100, 100, pattern)).toThrow(/line up/);
   });
 });

@@ -35,3 +35,8 @@ export function nearestDMC(rgb: readonly number[], n = 1): Thread[] {
     .slice(0, n)
     .map(x => x[1]);
 }
+
+/** Other thread brands (e.g. Stitchly's "CC168") keep their own codes; DMC codes are numbers, B5200, Blanc, Ecru. */
+export const isDmcCode = (code: string) => !/^[A-Za-z]{2,}\d+$/.test(code);
+/** "DMC 892" for DMC threads, just the code ("CC168") for other brands. */
+export const threadLabel = (t: { code: string }) => (isDmcCode(t.code) ? `DMC ${t.code}` : t.code);

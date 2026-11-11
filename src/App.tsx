@@ -12,7 +12,7 @@ import Account from "./components/Account";
 import SendToCustomer from "./components/SendToCustomer";
 import Library from "./components/Library";
 import { makeBackup, openBackup } from "./lib/backup";
-import { parseStitchly, stitchlyPicture } from "./lib/stitchly";
+import { coloursFromImage, parseStitchly, stitchlyPicture, unknownCodes, type StitchlyPattern } from "./lib/stitchly";
 import { buildInWorker } from "./lib/workerClient";
 import EmptyState from "./components/EmptyState";
 import PicturePanel from "./components/PicturePanel";
@@ -146,19 +146,50 @@ export default function App() {
   }, []);
   /** A Stitchly pattern becomes an exact one-pixel-per-stitch picture, with settings that rebuild it stitch for stitch. */
   const stitchlyRef = useRef<(f: File) => Promise<void>>(async () => {});
+  /** a Stitchly pattern waiting for its colours (threads from a brand the app has no colours for) */
+  const [pending, setPending] = useState<{ pattern: StitchlyPattern; unknown: string[]; fileName: string; msg: string } | null>(null);
+
+  const openPattern = async (pattern: StitchlyPattern, fileName: string, colours: Record<string, [number, number, number]> = {}) => {
+    const pic = stitchlyPicture(pattern, colours);
+    const c = document.createElement("canvas"); c.width = pic.W; c.height = pic.H;
+    c.getContext("2d")!.putImageData(new ImageData(pic.rgba, pic.W, pic.H), 0, 0);
+    const blob = await new Promise<Blob | null>(r => c.toBlob(r, "image/png"));
+    if (!blob) throw new Error("Couldn't turn the pattern into a picture.");
+    const own = Object.keys(colours).length;
+    const notes = ["Opened from Stitchly exactly: same stitches, threads and symbols."];
+    if (own) notes.push(`${own} thread colour${own > 1 ? "s" : ""} taken from your exported image.`);
+    const grey = unknownCodes(pattern).filter(k => !colours[k]), varied = pic.approx.filter(k => !grey.includes(k));
+    if (varied.length) notes.push(`DMC ${varied.join(" and ")} ${varied.length > 1 ? "are variegated threads, shown" : "is a variegated thread, shown"} in an in-between colour.`);
+    if (grey.length) notes.push(`${grey.join(", ")} ${grey.length > 1 ? "show" : "shows"} as grey until you open the file again and add an image exported from Stitchly.`);
+    openFile(new File([blob], fileName.replace(/\.stitchly$/i, ".png"), { type: "image/png" }), pic.settings, null, notes.join(" "));
+  };
+
   stitchlyRef.current = async (f: File) => {
     try {
-      const pic = stitchlyPicture(parseStitchly(await f.text()));
-      const c = document.createElement("canvas"); c.width = pic.W; c.height = pic.H;
-      c.getContext("2d")!.putImageData(new ImageData(pic.rgba, pic.W, pic.H), 0, 0);
-      const blob = await new Promise<Blob | null>(r => c.toBlob(r, "image/png"));
-      if (!blob) throw new Error("Couldn't turn the pattern into a picture.");
-      const note = pic.approx.length
-        ? `Opened from Stitchly exactly: same stitches, threads and symbols. DMC ${pic.approx.join(" and ")} ${pic.approx.length > 1 ? "are variegated threads, shown" : "is a variegated thread, shown"} in an in-between colour.`
-        : "Opened from Stitchly exactly: same stitches, DMC threads and symbols.";
-      openFile(new File([blob], f.name.replace(/\.stitchly$/i, ".png"), { type: "image/png" }), pic.settings, null, note);
+      const pattern = parseStitchly(await f.text());
+      const unknown = unknownCodes(pattern);
+      if (unknown.length) { setPending({ pattern, unknown, fileName: f.name, msg: "" }); setStep("design"); return; }
+      setPending(null);
+      await openPattern(pattern, f.name);
     } catch (e) { tell((e as Error).message || "Couldn't open that Stitchly file."); }
   };
+
+  /** colours for the pending pattern, read from an image exported from Stitchly */
+  const pendingImage = async (img: File | undefined) => {
+    if (!img || !pending) return;
+    try {
+      const bmp = await createImageBitmap(img);
+      const c = document.createElement("canvas"); c.width = bmp.width; c.height = bmp.height;
+      const g = c.getContext("2d", { willReadFrequently: true })!;
+      g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); // see-through exports count as background
+      g.drawImage(bmp, 0, 0); bmp.close();
+      const { colours } = coloursFromImage(g.getImageData(0, 0, c.width, c.height).data, c.width, c.height, pending.pattern);
+      const p = pending;
+      setPending(null);
+      await openPattern(p.pattern, p.fileName, colours);
+    } catch (e) { setPending(p => (p ? { ...p, msg: (e as Error).message } : p)); }
+  };
+  const pendingInput = useRef<HTMLInputElement>(null);
 
   const openFile = useCallback((f: File | undefined, saved?: Settings, id: string | null = null, note = "") => {
     if (f && /\.stitchly$/i.test(f.name)) { void stitchlyRef.current(f); return; }
@@ -601,6 +632,26 @@ export default function App() {
         <Suspense fallback={<p className="note">Loading…</p>}>
           <DesignWithClaude mesh={s.mesh} onUse={openDesigned} onClose={() => setDesignOpen(false)} />
         </Suspense>
+      )}
+
+      {pending && (
+        <section className="library" aria-label="Colours for this pattern">
+          <div className="bar"><h2>Colours for {pending.fileName.replace(/\.stitchly$/i, "")}</h2><span className="spacer" /><button className="btn" type="button" onClick={() => setPending(null)}>Cancel</button></div>
+          <p className="note">
+            This pattern uses {pending.unknown.length} thread colour{pending.unknown.length > 1 ? "s" : ""} from another brand ({pending.unknown.slice(0, 6).join(", ")}{pending.unknown.length > 6 ? ", …" : ""}).
+            Stitchly files only store the thread codes, not their colours, so the app takes the exact colours from a picture of the pattern.
+          </p>
+          <ol className="steps">
+            <li>In Stitchly, open the pattern and <b>export it as an image</b>, in colour.</li>
+            <li>Add that image here. Every stitch keeps its code (like {pending.unknown[0]}) and gets its colour from the image.</li>
+          </ol>
+          <input ref={pendingInput} type="file" accept="image/*" hidden onChange={e => { void pendingImage(e.target.files?.[0]); e.target.value = ""; }} />
+          <div className="btns">
+            <button className="btn primary" type="button" onClick={() => pendingInput.current?.click()}>Add the exported image</button>
+            <button className="btn" type="button" onClick={() => { const p = pending; setPending(null); void openPattern(p.pattern, p.fileName).catch(e => tell((e as Error).message)); }}>Open with stand-in colours</button>
+          </div>
+          {pending.msg && <p className="note status" role="alert">{pending.msg}</p>}
+        </section>
       )}
 
       {(!pic || step === "design") && (

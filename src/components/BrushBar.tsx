@@ -1,3 +1,4 @@
+import { threadLabel } from "../lib/dmc";
 import { useEffect, useRef } from "react";
 import { fromHex, hex, inkFor } from "../lib/color";
 import { ERASER } from "../lib/edit";
@@ -33,8 +34,8 @@ export default function BrushBar({ pal, brush, onBrush, onAdd, size, onSize }: P
           type="button"
           className="brush"
           aria-pressed={brush === n}
-          aria-label={`Colour ${n + 1}, DMC ${p.thread.code}`}
-          title={`${n + 1}. DMC ${p.thread.code} ${p.thread.name}`}
+          aria-label={`Colour ${n + 1}, ${threadLabel(p.thread)}`}
+          title={`${n + 1}. ${threadLabel(p.thread)} ${p.thread.name}`}
           style={{ background: hex(p.rgb), color: inkFor(p.rgb) }}
           onClick={() => onBrush(n)}
         >{p.sym}</button>

@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { fromHex, hex, inkFor } from "../lib/color";
-import { nearestDMC, threadByCode } from "../lib/dmc";
+import { isDmcCode, nearestDMC, threadByCode } from "../lib/dmc";
 import type { PaletteEntry } from "../lib/chart";
 import type { Chart } from "../lib/render";
 
@@ -65,14 +65,15 @@ function LegendRow({ p, n, on, onFocus, onEdit, onMark }: { p: PaletteEntry; n: 
         <div className="lhead"><b>{n + 1}. {colour}</b><span className="mono">{p.count} st</span></div>
         <label className="thread" onClick={stop}>
           <i style={{ background: hex(p.thread.rgb) }} />
-          <span className="mono">DMC</span>
+          <span className="mono">{isDmcCode(p.thread.code) ? "DMC" : "Thread"}</span>
           <select
-            aria-label={`DMC thread for colour ${n + 1}`}
+            aria-label={`Thread for colour ${n + 1}`}
             value={p.thread.code}
             onKeyDown={stop}
             onChange={e => { const d = threadByCode(e.target.value); if (d) { p.thread = d; p.rgb = [...d.rgb]; onEdit(); } }}
           >
-            {near.map(d => <option key={d.code} value={d.code}>{d.code} {d.name}</option>)}
+            {!isDmcCode(p.thread.code) && <option value={p.thread.code}>{p.thread.code} (from Stitchly)</option>}
+            {near.filter(d => isDmcCode(p.thread.code) || d.code !== p.thread.code).map(d => <option key={d.code} value={d.code}>{isDmcCode(p.thread.code) ? "" : "DMC "}{d.code} {d.name}</option>)}
           </select>
         </label>
         <div className="lbar"><span style={{ width: pct + "%" }} /></div>

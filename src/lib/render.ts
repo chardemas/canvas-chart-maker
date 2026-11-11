@@ -1,4 +1,5 @@
 /** Drawing the chart onto a canvas: symbol/colour charts, the plain print version, and the image to save. */
+import { threadLabel } from "./dmc";
 import { hex, inkFor } from "./color";
 import type { BuiltChart } from "./chart";
 
@@ -109,7 +110,7 @@ export function renderExport(chart: Chart, mode: Mode, mesh: number): string {
   const colW = (width - M * 2) / cols;
   const items = [
     { rgb: [255, 255, 255], sym: "", text: `Background   ${chart.bg} st` },
-    ...pal.map((p, n) => ({ rgb: p.rgb as number[], sym: mode === "symbols" ? p.sym : "", text: `${n + 1}.  DMC ${p.thread.code} ${p.thread.name}   ${p.count} st` })),
+    ...pal.map((p, n) => ({ rgb: p.rgb as number[], sym: mode === "symbols" ? p.sym : "", text: `${n + 1}.  ${threadLabel(p.thread)} ${p.thread.name}   ${p.count} st` })),
   ];
   items.forEach((it, n) => {
     const x = M + (n % cols) * colW, y = ly + Math.floor(n / cols) * rowH;

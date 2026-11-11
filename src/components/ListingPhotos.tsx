@@ -1,3 +1,4 @@
+import { threadLabel } from "../lib/dmc";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Chart } from "../lib/render";
 import type { Look } from "../lib/listingPhoto";
@@ -86,7 +87,7 @@ function drawInfo(chart: Chart, mesh: number, title: string, bg: string) {
     `${(chart.W / mesh).toFixed(1)} × ${(chart.H / mesh).toFixed(1)} in`,
     `${mesh} mesh`,
     `${chart.W} × ${chart.H} stitches`,
-    `${used.length} DMC colours`,
+    `${used.length} thread colours`,
   ];
   g.fillText(facts.join("  ·  "), 200, 570, OUT_W - 400);
   g.fillStyle = "#e3d6da"; g.fillRect(200, 680, OUT_W - 400, 5);
@@ -98,7 +99,7 @@ function drawInfo(chart: Chart, mesh: number, title: string, bg: string) {
     g.beginPath(); g.arc(x + r, y - r * 0.6, r, 0, Math.PI * 2); g.fill();
     g.strokeStyle = "rgba(43,28,34,.25)"; g.lineWidth = 3; g.stroke();
     g.fillStyle = ink; g.font = `600 ${Math.round(rowH * 0.42)}px Figtree, system-ui, sans-serif`;
-    g.fillText(`DMC ${p.thread.code}`, x + r * 2 + 36, y, colW * 0.3);
+    g.fillText(threadLabel(p.thread), x + r * 2 + 36, y, colW * 0.3);
     g.fillStyle = muted; g.font = `400 ${Math.round(rowH * 0.36)}px Figtree, system-ui, sans-serif`;
     g.fillText(p.thread.name, x + r * 2 + 36 + colW * 0.3, y, colW * 0.62 - r * 2 - 60);
   });
