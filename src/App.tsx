@@ -123,6 +123,26 @@ export default function App() {
   const source = !pic ? null : !s.cutout ? pic.img : cut?.pic === pic ? cut.canvas : null;
 
   /* ---------- picture loading ---------- */
+  /** a message about opening files: the upload box shows it before a picture is open, the picture panel after */
+  const tell = (m: string) => { setUploadMsg(m); setPicNote(m); setStep("design"); };
+
+  // drop a file anywhere on the page: pictures while designing, Stitchly patterns from any step;
+  // stops Chrome from opening a dropped file in place of the app
+  const stepRef = useRef<Step>("design");
+  useEffect(() => {
+    const over = (e: DragEvent) => { if (e.dataTransfer?.types.includes("Files")) e.preventDefault(); };
+    const drop = (e: DragEvent) => {
+      if (!e.dataTransfer?.files.length) return;
+      const handled = e.defaultPrevented; // the upload box handles its own drops
+      e.preventDefault();
+      if (handled) return;
+      const f = e.dataTransfer.files[0];
+      if (/\.stitchly$/i.test(f.name) || stepRef.current === "design") openFileRef.current(f);
+    };
+    window.addEventListener("dragover", over);
+    window.addEventListener("drop", drop);
+    return () => { window.removeEventListener("dragover", over); window.removeEventListener("drop", drop); };
+  }, []);
   /** A Stitchly pattern becomes an exact one-pixel-per-stitch picture, with settings that rebuild it stitch for stitch. */
   const stitchlyRef = useRef<(f: File) => Promise<void>>(async () => {});
   stitchlyRef.current = async (f: File) => {
@@ -136,12 +156,12 @@ export default function App() {
         ? `Opened from Stitchly exactly: same stitches, threads and symbols. DMC ${pic.approx.join(" and ")} ${pic.approx.length > 1 ? "are variegated threads, shown" : "is a variegated thread, shown"} in an in-between colour.`
         : "Opened from Stitchly exactly: same stitches, DMC threads and symbols.";
       openFile(new File([blob], f.name.replace(/\.stitchly$/i, ".png"), { type: "image/png" }), pic.settings, null, note);
-    } catch (e) { setUploadMsg((e as Error).message || "Couldn't open that Stitchly file."); }
+    } catch (e) { tell((e as Error).message || "Couldn't open that Stitchly file."); }
   };
 
   const openFile = useCallback((f: File | undefined, saved?: Settings, id: string | null = null, note = "") => {
     if (f && /\.stitchly$/i.test(f.name)) { void stitchlyRef.current(f); return; }
-    if (!f || !(f.type || "").startsWith("image/")) { setUploadMsg("That file isn't a picture. Try a JPG, PNG or WebP, or a Stitchly pattern."); return; }
+    if (!f || !(f.type || "").startsWith("image/")) { tell("That file isn't a picture. Try a JPG, PNG or WebP, or a Stitchly pattern."); return; }
     const url = URL.createObjectURL(f);
     const img = new Image();
     img.onload = () => {
@@ -150,13 +170,18 @@ export default function App() {
       setForm(cur => saved ? toForm({ ...DEFAULT_SETTINGS, ...saved }) : { ...cur, win: "5", crop: { x: 0, y: 0, w: 1, h: 1 }, exact: undefined });
       setUploadMsg(UPLOAD_HINT);
       setPicNote(note);
+      if (!saved || note) { setStep("design"); try { localStorage.setItem("step", "design"); } catch { /* private mode */ } }
       setCropOpen(false); setExported(null);
       dbPut("file", { blob: f, name, type: f.type } satisfies SavedFile);
       setCurrentId(id); dbPut("currentId", id);
     };
-    img.onerror = () => { URL.revokeObjectURL(url); setUploadMsg("Couldn't open that picture. Try a JPG, PNG or WebP."); };
+    img.onerror = () => { URL.revokeObjectURL(url); tell("Couldn't open that picture. Try a JPG, PNG or WebP."); };
     img.src = url;
   }, []);
+
+  const openFileRef = useRef(openFile);
+  openFileRef.current = openFile;
+  stepRef.current = step;
 
   // pick up the last picture and its settings, if this browser has them
   const restored = useRef(false);

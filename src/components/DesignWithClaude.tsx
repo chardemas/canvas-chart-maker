@@ -93,6 +93,8 @@ export default function DesignWithClaude({ mesh: chartMesh, onUse, onClose }: Pr
   const [mesh, setMesh] = useState(chartMesh);
   const [colours, setColours] = useState(8);
   const [busy, setBusy] = useState(false);
+  const [stage, setStage] = useState("");
+  const [secs, setSecs] = useState(0);
   const [error, setError] = useState("");
   const [result, setResult] = useState<Result | null>(null);
   const [feedback, setFeedback] = useState("");
@@ -113,18 +115,45 @@ export default function DesignWithClaude({ mesh: chartMesh, onUse, onClose }: Pr
     setBusy(true); setError("");
     try {
       const size = previous && result ? { W: result.W, H: result.H, colours: result.colours, mesh: result.mesh } : { W, H, colours, mesh };
+      setStage("Sending to Claude…");
       const res = await fetch("/api/design", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ description, images: photos.map(p => ({ mediaType: p.mediaType, data: p.data })), W: size.W, H: size.H, colours: size.colours, previous }),
       });
-      const body = await res.json().catch(() => ({ error: `The Studio server answered ${res.status}. Is npm run studio running?` }));
-      if (!res.ok) throw new Error(body.error || "Something went wrong.");
-      setResult({ svg: body.svg, notes: body.notes, ...size });
+      if (!res.ok || !res.body) {
+        const body = await res.json().catch(() => ({ error: `The Studio server answered ${res.status}. Is npm run studio running?` }));
+        throw new Error(body.error || "Something went wrong.");
+      }
+      // progress arrives one JSON object per line, then the finished design
+      const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+      let buf = "", done: { svg: string; notes: string } | null = null;
+      for (;;) {
+        const { value, done: end } = await reader.read();
+        if (end) break;
+        buf += value;
+        let nl;
+        while ((nl = buf.indexOf("\n")) >= 0) {
+          const ev = JSON.parse(buf.slice(0, nl)); buf = buf.slice(nl + 1);
+          if (ev.type === "progress") setStage(ev.stage === "thinking" ? "Claude is planning the design…" : `Claude is drawing… (${Math.round(ev.chars / 100) / 10}k characters)`);
+          else if (ev.type === "error") throw new Error(ev.error);
+          else if (ev.type === "done") done = ev;
+        }
+      }
+      if (!done) throw new Error("The connection closed before the design arrived. Try again.");
+      setResult({ svg: done.svg, notes: done.notes, ...size });
       setFeedback("");
     } catch (e) { setError((e as Error).message === "Failed to fetch" ? "Couldn't reach the Studio server. Is npm run studio running?" : (e as Error).message); }
-    finally { setBusy(false); }
+    finally { setBusy(false); setStage(""); }
   };
+
+  // a running clock while Claude works, so a long wait doesn't look stuck
+  useEffect(() => {
+    if (!busy) return;
+    setSecs(0);
+    const t0 = Date.now(), id = setInterval(() => setSecs(Math.round((Date.now() - t0) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [busy]);
 
   // show the result as it will stitch: one square per stitch
   useEffect(() => {
@@ -157,7 +186,7 @@ export default function DesignWithClaude({ mesh: chartMesh, onUse, onClose }: Pr
   return (
     <section className="library designbox" aria-label="Design with Claude">
       <div className="bar"><h2>Design with Claude</h2><span className="studio-tag">Studio</span><span className="spacer" /><button className="btn" type="button" onClick={onClose}>Close</button></div>
-      <p className="note">Describe a design, add inspiration photos, or both. Claude draws a clean, flat design sized to your canvas, ready to become a chart. Each design takes about a minute.</p>
+      <p className="note">Describe a design, add inspiration photos, or both. Claude draws a clean, flat design sized to your canvas, ready to become a chart. You'll see its progress and a timer while it works.</p>
 
       <label className="lbl" htmlFor="design-desc">What should it be?</label>
       <textarea id="design-desc" className="txt" rows={3} value={description} maxLength={2000}
@@ -187,6 +216,7 @@ export default function DesignWithClaude({ mesh: chartMesh, onUse, onClose }: Pr
       <div className="btns">
         <button className="btn primary" type="button" disabled={busy || !sizeOk} onClick={() => void draw()}>{busy ? "Claude is drawing…" : result ? "Draw a new one" : "Draw it"}</button>
       </div>
+      {busy && <p className="note status" role="status">{stage} {secs}s</p>}
       {error && <p className="note status" role="alert">{error}</p>}
 
       {result && (

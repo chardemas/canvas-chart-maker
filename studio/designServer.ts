@@ -21,6 +21,12 @@ export interface DesignRequest {
 
 export interface DesignReply { svg: string; notes: string }
 
+/** What the server streams back, one JSON object per line. */
+export type DesignEvent =
+  | { type: "progress"; stage: "thinking" | "drawing"; chars: number }
+  | { type: "done"; svg: string; notes: string }
+  | { type: "error"; error: string };
+
 const SYSTEM = `You design needlepoint canvases for a small business that sells hand-painted needlepoint designs.
 
 You draw each design as a single SVG on a stitch grid: one SVG unit is one stitch on the canvas. The SVG is later turned into a stitch chart by sampling one colour per unit square and matching each colour to a DMC thread, so draw in a way that survives that:
@@ -46,7 +52,7 @@ function brief(r: DesignRequest): string {
   return lines.join("\n\n");
 }
 
-export async function design(client: Anthropic, r: DesignRequest): Promise<DesignReply> {
+export async function design(client: Anthropic, r: DesignRequest, progress: (e: DesignEvent) => void = () => {}): Promise<DesignReply> {
   const content: Anthropic.Beta.BetaContentBlockParam[] = [
     ...r.images.map(im => ({ type: "image" as const, source: { type: "base64" as const, media_type: im.mediaType, data: im.data } })),
     { type: "text", text: brief(r) },
@@ -55,14 +61,25 @@ export async function design(client: Anthropic, r: DesignRequest): Promise<Desig
     model: "claude-opus-5-5",
     max_tokens: 64000,
     thinking: { type: "adaptive" },
-    output_config: { effort: "high" },
+    // medium (this model's default) keeps a design to roughly a minute; high thinks longer for little visible gain here
+    output_config: { effort: "medium" },
     // if a safety check declines, the API re-runs the request on a fallback model instead of failing
     betas: ["server-side-fallback-2026-07-01"],
     fallbacks: "default",
     system: SYSTEM,
     messages: [{ role: "user", content }],
   });
+  let last = 0;
+  stream.on("streamEvent", ev => {
+    if (ev.type === "content_block_start" && ev.content_block.type === "thinking") progress({ type: "progress", stage: "thinking", chars: 0 });
+  });
+  stream.on("text", (_d, snap) => {
+    const now = Date.now();
+    if (now - last > 400) { last = now; progress({ type: "progress", stage: "drawing", chars: snap.length }); }
+  });
+  const t0 = Date.now();
   const msg = await stream.finalMessage();
+  console.log(`[design] ${r.W}×${r.H}, ${r.images.length} photo(s): ${((Date.now() - t0) / 1000).toFixed(0)} s, ${msg.usage.output_tokens} output tokens, stop ${msg.stop_reason}`);
   if (msg.stop_reason === "refusal") throw new Error("Claude declined to draw this one. Try describing it differently.");
   const text = msg.content.map(b => (b.type === "text" ? b.text : "")).join("\n");
   const svg = text.match(/<svg[\s\S]*<\/svg>/i)?.[0];
@@ -94,19 +111,25 @@ export function designServer(apiKey: string | undefined): Plugin {
       server.middlewares.use("/api/design", async (req, res) => {
         if (req.method !== "POST") return send(res, 405, { error: "POST only" });
         if (!apiKey) return send(res, 500, { error: "No Claude API key yet. Add ANTHROPIC_API_KEY to .env.local in the project folder, then restart npm run studio." });
+        let r: DesignRequest;
+        try { r = JSON.parse(await readBody(req)) as DesignRequest; } catch { return send(res, 400, { error: "Bad request." }); }
+        const W = Math.round(r.W), H = Math.round(r.H);
+        if (!(W >= 4 && W <= 300 && H >= 4 && H <= 300)) return send(res, 400, { error: "Size must be 4 to 300 stitches each way." });
+        // stream progress lines so the page can show what's happening
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "application/x-ndjson");
+        const line = (e: DesignEvent) => res.write(JSON.stringify(e) + "\n");
         try {
-          const r = JSON.parse(await readBody(req)) as DesignRequest;
-          const W = Math.round(r.W), H = Math.round(r.H);
-          if (!(W >= 4 && W <= 300 && H >= 4 && H <= 300)) return send(res, 400, { error: "Size must be 4 to 300 stitches each way." });
-          const reply = await design(new Anthropic({ apiKey }), { ...r, W, H, colours: Math.min(30, Math.max(2, Math.round(r.colours))), images: (r.images ?? []).slice(0, 4) });
-          send(res, 200, reply);
+          const reply = await design(new Anthropic({ apiKey }), { ...r, W, H, colours: Math.min(30, Math.max(2, Math.round(r.colours))), images: (r.images ?? []).slice(0, 4) }, line);
+          line({ type: "done", ...reply });
         } catch (e) {
           const msg = e instanceof Anthropic.AuthenticationError ? "The Claude API key in .env.local was rejected."
             : e instanceof Anthropic.RateLimitError ? "Claude is busy right now (rate limit). Wait a minute and try again."
             : e instanceof Anthropic.APIError ? `Claude API error ${e.status}: ${e.message}`
             : (e as Error).message;
-          send(res, 500, { error: msg });
+          line({ type: "error", error: msg });
         }
+        res.end();
       });
     },
   };
